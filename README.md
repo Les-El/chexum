@@ -1,4 +1,4 @@
-# Hash Machine
+# hashi
 
 > Hashing utilities and experiments — simple, fast, and configurable.
 
@@ -15,7 +15,7 @@ Hash Machine is a small Go project that provides hashing utilities and examples 
 To build a local binary:
 
 ```bash
-go build -o hash-machine
+go build -o hashi
 ```
 
 Run tests:
@@ -29,7 +29,7 @@ go test ./...
 Example (after building):
 
 ```bash
-./hash-machine [flags]
+./hashi [flags]
 # see `--help` for available commands
 ```
 
@@ -43,7 +43,7 @@ This project is unlicensed by default. Add a `LICENSE` file if you want to apply
 
 ## Releases
 
-This repository is being released as `Hash Machine 1.0`.
+This repository is being released as `hashi 1.0`.
 
 - Tag: `v1.0.0`
 - Release notes: see `CHANGELOG.md` for details

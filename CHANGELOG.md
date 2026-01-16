@@ -7,5 +7,5 @@ All notable changes to this project will be documented in this file.
 
 ### Notes
 
-- Adds core hashing utilities and CLI entrypoint
+- Adds core hashi utilities and CLI entrypoint
 - Basic tests and examples included
