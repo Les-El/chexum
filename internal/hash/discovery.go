@@ -1,0 +1,91 @@
+// Package hash provides hash computation and file discovery.
+package hash
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// DiscoveryOptions defines criteria for file discovery.
+type DiscoveryOptions struct {
+	Recursive bool
+	Hidden    bool
+	Include   []string
+	Exclude   []string
+}
+
+// DiscoverFiles finds all files in the given paths based on options.
+// If paths is empty, it uses the current directory.
+func DiscoverFiles(paths []string, opts DiscoveryOptions) ([]string, error) {
+	if len(paths) == 0 {
+		paths = []string{"."}
+	}
+
+	var discovered []string
+
+	for _, root := range paths {
+		if root == "-" {
+			discovered = append(discovered, root)
+			continue
+		}
+
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			// Skip the root if it's a directory we're walking
+			if path == root && info.IsDir() && path != "." {
+				// But we still want to enter it
+				return nil
+			}
+
+			// 1. Handle hidden files
+			if !opts.Hidden && isHidden(path, root) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			// 2. Handle directories
+			if info.IsDir() {
+				if path != root && !opts.Recursive {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			// 3. Apply filters (basic implementation for now, Task 39 will enhance)
+			// For Task 24, we just need basic discovery
+			
+			discovered = append(discovered, path)
+			return nil
+		})
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return discovered, nil
+}
+
+// isHidden checks if a file or directory is hidden.
+func isHidden(path, root string) bool {
+	// Simple check: starts with dot
+	// We check the base name of the current path element
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return strings.HasPrefix(filepath.Base(path), ".")
+	}
+	
+	parts := strings.Split(rel, string(filepath.Separator))
+	for _, part := range parts {
+		if strings.HasPrefix(part, ".") && part != "." && part != ".." {
+			return true
+		}
+	}
+	return false
+}
