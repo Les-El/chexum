@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"hashi/internal/config"
+	"github.com/Les-El/hashi/internal/config"
 )
 
 // OutputManager handles safe file operations for output and logging.

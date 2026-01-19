@@ -13,11 +13,11 @@ import (
 	"testing"
 	"testing/quick"
 
-	"hashi/internal/color"
-	"hashi/internal/config"
-	"hashi/internal/console"
-	"hashi/internal/errors"
-	"hashi/internal/hash"
+	"github.com/Les-El/hashi/internal/color"
+	"github.com/Les-El/hashi/internal/config"
+	"github.com/Les-El/hashi/internal/console"
+	"github.com/Les-El/hashi/internal/errors"
+	"github.com/Les-El/hashi/internal/hash"
 )
 
 // Property 32: Hash validation mode reports correct algorithms

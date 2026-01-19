@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"hashi/internal/hash"
+	"github.com/Les-El/hashi/internal/hash"
 )
 
 // Formatter is the interface for output formatters.

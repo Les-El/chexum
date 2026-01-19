@@ -5,7 +5,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"hashi/internal/conflict"
+	"github.com/Les-El/hashi/internal/conflict"
 )
 
 // Feature: cli-guidelines-review, Property 25: Mutually exclusive flags are rejected

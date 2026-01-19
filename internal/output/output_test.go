@@ -8,7 +8,7 @@ import (
 	"testing/quick"
 	"time"
 
-	"hashi/internal/hash"
+	"github.com/Les-El/hashi/internal/hash"
 )
 
 // Feature: cli-guidelines-review, Property 19: Default output groups by matches

@@ -18,8 +18,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/pflag"
-	"hashi/internal/conflict"
-	"hashi/internal/security"
+	"github.com/Les-El/hashi/internal/conflict"
+	"github.com/Les-El/hashi/internal/security"
 )
 
 // Exit codes for scripting support

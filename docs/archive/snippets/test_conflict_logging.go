@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"hashi/internal/conflict"
+	"github.com/Les-El/hashi/internal/conflict"
 )
 
 func main() {

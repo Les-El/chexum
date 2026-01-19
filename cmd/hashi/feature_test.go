@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"hashi/internal/archive"
-	"hashi/internal/config"
-	"hashi/internal/console"
-	"hashi/internal/hash"
+	"github.com/Les-El/hashi/internal/archive"
+	"github.com/Les-El/hashi/internal/config"
+	"github.com/Les-El/hashi/internal/console"
+	"github.com/Les-El/hashi/internal/hash"
 )
 
 // TestConfigIntegration_FlagsToConfig tests that ParseArgs correctly populates Config based on conflict resolution.

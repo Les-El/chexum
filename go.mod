@@ -1,4 +1,4 @@
-module hashi
+module github.com/Les-El/hashi
 
 go 1.24.0
 

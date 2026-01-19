@@ -5,8 +5,8 @@ import (
 	"testing"
 	"testing/quick"
 
-	"hashi/internal/config"
-	"hashi/internal/hash"
+	"github.com/Les-El/hashi/internal/config"
+	"github.com/Les-El/hashi/internal/hash"
 )
 
 func TestDetermineExitCode(t *testing.T) {

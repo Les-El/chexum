@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"hashi/internal/color"
+	"github.com/Les-El/hashi/internal/color"
 )
 
 // ErrorType categorizes errors for grouping and handling.

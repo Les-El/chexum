@@ -2,8 +2,8 @@
 package errors
 
 import (
-	"hashi/internal/config"
-	"hashi/internal/hash"
+	"github.com/Les-El/hashi/internal/config"
+	"github.com/Les-El/hashi/internal/hash"
 )
 
 // ExitCode constants are defined in internal/config/config.go to avoid circular dependencies

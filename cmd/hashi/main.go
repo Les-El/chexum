@@ -18,16 +18,16 @@ import (
 	"strings"
 	"time"
 
-	"hashi/internal/archive"
-	"hashi/internal/color"
-	"hashi/internal/config"
-	"hashi/internal/conflict"
-	"hashi/internal/console"
-	"hashi/internal/errors"
-	"hashi/internal/hash"
-	"hashi/internal/output"
-	"hashi/internal/progress"
-	"hashi/internal/signals"
+	"github.com/Les-El/hashi/internal/archive"
+	"github.com/Les-El/hashi/internal/color"
+	"github.com/Les-El/hashi/internal/config"
+	"github.com/Les-El/hashi/internal/conflict"
+	"github.com/Les-El/hashi/internal/console"
+	"github.com/Les-El/hashi/internal/errors"
+	"github.com/Les-El/hashi/internal/hash"
+	"github.com/Les-El/hashi/internal/output"
+	"github.com/Les-El/hashi/internal/progress"
+	"github.com/Les-El/hashi/internal/signals"
 )
 
 func main() {

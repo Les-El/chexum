@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"hashi/internal/config"
+	"github.com/Les-El/hashi/internal/config"
 )
 
 // Streams holds the configured output streams.

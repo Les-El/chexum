@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"hashi/internal/security"
+	"github.com/Les-El/hashi/internal/security"
 )
 
 func TestValidateOutputPath(t *testing.T) {

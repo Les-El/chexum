@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"hashi/internal/config"
+	"github.com/Les-El/hashi/internal/config"
 )
 
 func TestOutputManager_OpenOutputFile(t *testing.T) {
