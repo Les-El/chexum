@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.2] - 2026-01-18
+
+### Fixed
+- **Module Path**: Updated `go.mod` path and internal imports to `github.com/Les-El/hashi` to support `go install` from the remote repository.
+
 ## [1.0.1] - 2026-01-18
 
 ### Added
