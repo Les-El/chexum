@@ -77,6 +77,23 @@ func main() {
 		os.Exit(config.ExitSuccess)
 	}
 
+	// 4. Discover/Expand files based on paths and options
+	// We skip discovery if we are ONLY validating hash strings (no files provided)
+	if len(cfg.Files) > 0 || len(cfg.Hashes) == 0 {
+		discOpts := hash.DiscoveryOptions{
+			Recursive: cfg.Recursive,
+			Hidden:    cfg.Hidden,
+			Include:   cfg.Include,
+			Exclude:   cfg.Exclude,
+		}
+		discovered, err := hash.DiscoverFiles(cfg.Files, discOpts)
+		if err != nil {
+			fmt.Fprintln(streams.Err, errHandler.FormatError(err))
+			os.Exit(config.ExitPartialFailure)
+		}
+		cfg.Files = discovered
+	}
+
 	// Determine operation mode based on arguments
 	
 	// Edge case handling for file + hash comparison mode (Requirements 25.4, 25.5, 25.6)
