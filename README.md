@@ -22,15 +22,64 @@ A command-line hash comparison tool that follows industry-standard CLI design gu
 ## Installation
 
 ```bash
-go install github.com/example/hashi/cmd/hashi@latest
+go install github.com/Les-El/hashi/cmd/hashi@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/example/hashi.git
+git clone https://github.com/Les-El/hashi.git
 cd hashi
 go build -o hashi ./cmd/hashi
+sudo mv hashi /usr/local/bin/
+```
+
+### Adding to PATH
+
+If the `hashi` command is not recognized after installation, you may need to add its location to your system's PATH.
+
+**Linux and macOS:**
+If you used `go install`, add the following line to your shell profile (e.g., `~/.bashrc`, `~/.zshrc`):
+```bash
+export PATH=$PATH:$(go env GOPATH)/bin
+```
+Then, reload your profile: `source ~/.bashrc` (or the appropriate file).
+
+**Windows:**
+1. Open the **Start Search**, type in "env", and choose **"Edit the system environment variables"**.
+2. Click the **"Environment Variables..."** button.
+3. Under **"User variables"**, find **"Path"**, select it, and click **"Edit..."**.
+4. Click **"New"** and add the path to the directory where you saved `hashi.exe` (e.g., `C:\Go\bin` if using `go install`).
+5. Click **OK** on all windows and restart your terminal.
+
+## Uninstallation
+
+To completely remove `hashi` from your system, follow the steps based on your installation method.
+
+### 1. Removing the Binary
+
+**If installed via `go install`:**
+```bash
+rm $(go env GOPATH)/bin/hashi
+```
+
+**If installed from source (using the `mv` command above):**
+```bash
+sudo rm /usr/local/bin/hashi
+```
+
+### 2. Removing Configuration and Logs
+`hashi` may have created configuration files or logs in standard locations. To remove them:
+
+```bash
+# Remove global configuration directory
+rm -rf ~/.config/hashi
+
+# Remove traditional dotfile configuration
+rm -rf ~/.hashi
+
+# Remove any local project configuration
+rm .hashi.toml
 ```
 
 ## Quick Start
