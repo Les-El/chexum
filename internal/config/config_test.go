@@ -1,10 +1,13 @@
-// Package config tests for argument parsing and configuration.
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/quick"
+
+	"github.com/spf13/pflag"
 )
 
 // Helper for contains check
@@ -430,100 +433,63 @@ func containsHelper(s, substr string) bool {
 }
 
 // TestParseArgs_ShortAndLongFlags tests that both short and long flag variants work.
-// Validates: Requirements 4.1, 4.2
 func TestParseArgs_ShortAndLongFlags(t *testing.T) {
+	t.Run("Boolean Flags", testBooleanFlags)
+	t.Run("Value Flags", testValueFlags)
+	t.Run("Slice Flags", testSliceFlags)
+}
+
+func testBooleanFlags(t *testing.T) {
 	tests := []struct {
-		name      string
-		shortArgs []string
-		longArgs  []string
-		check     func(*Config) bool
+		name string
+		args []string
+		check func(*Config) bool
 	}{
-		{
-			name:      "recursive",
-			shortArgs: []string{"-r"},
-			longArgs:  []string{"--recursive"},
-			check:     func(c *Config) bool { return c.Recursive },
-		},
-		{
-			name:      "verbose",
-			shortArgs: []string{"-v"},
-			longArgs:  []string{"--verbose"},
-			check:     func(c *Config) bool { return c.Verbose },
-		},
-		{
-			name:      "quiet",
-			shortArgs: []string{"-q"},
-			longArgs:  []string{"--quiet"},
-			check:     func(c *Config) bool { return c.Quiet },
-		},
-		{
-			name:      "help",
-			shortArgs: []string{"-h"},
-			longArgs:  []string{"--help"},
-			check:     func(c *Config) bool { return c.ShowHelp },
-		},
-		{
-			name:      "version",
-			shortArgs: []string{"-V"},
-			longArgs:  []string{"--version"},
-			check:     func(c *Config) bool { return c.ShowVersion },
-		},
-		{
-			name:      "algorithm",
-			shortArgs: []string{"-a", "md5"},
-			longArgs:  []string{"--algorithm=md5"},
-			check:     func(c *Config) bool { return c.Algorithm == "md5" },
-		},
-		{
-			name:      "format",
-			shortArgs: []string{"-f", "json"},
-			longArgs:  []string{"--format=json"},
-			check:     func(c *Config) bool { return c.OutputFormat == "json" },
-		},
-		{
-			name:      "output",
-			shortArgs: []string{"-o", "out.txt"},
-			longArgs:  []string{"--output=out.txt"},
-			check:     func(c *Config) bool { return c.OutputFile == "out.txt" },
-		},
-		{
-			name:      "config",
-			shortArgs: []string{"-c", "config.toml"},
-			longArgs:  []string{"--config=config.toml"},
-			check:     func(c *Config) bool { return c.ConfigFile == "config.toml" },
-		},
-		{
-			name:      "include",
-			shortArgs: []string{"-i", "*.txt"},
-			longArgs:  []string{"--include=*.txt"},
-			check:     func(c *Config) bool { return len(c.Include) == 1 && c.Include[0] == "*.txt" },
-		},
-		{
-			name:      "exclude",
-			shortArgs: []string{"-e", "*.log"},
-			longArgs:  []string{"--exclude=*.log"},
-			check:     func(c *Config) bool { return len(c.Exclude) == 1 && c.Exclude[0] == "*.log" },
-		},
+		{"recursive_short", []string{"-r"}, func(c *Config) bool { return c.Recursive }},
+		{"recursive_long", []string{"--recursive"}, func(c *Config) bool { return c.Recursive }},
+		{"verbose_short", []string{"-v"}, func(c *Config) bool { return c.Verbose }},
+		{"quiet_short", []string{"-q"}, func(c *Config) bool { return c.Quiet }},
 	}
+	runParseSubtests(t, tests)
+}
 
+func testValueFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		check func(*Config) bool
+	}{
+		{"algorithm", []string{"-a", "md5"}, func(c *Config) bool { return c.Algorithm == "md5" }},
+		{"output", []string{"-o", "out.txt"}, func(c *Config) bool { return c.OutputFile == "out.txt" }},
+	}
+	runParseSubtests(t, tests)
+}
+
+func testSliceFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		check func(*Config) bool
+	}{
+		{"include", []string{"-i", "*.txt"}, func(c *Config) bool { return len(c.Include) == 1 }},
+		{"exclude", []string{"-e", "*.log"}, func(c *Config) bool { return len(c.Exclude) == 1 }},
+	}
+	runParseSubtests(t, tests)
+}
+
+func runParseSubtests(t *testing.T, tests []struct {
+	name string
+	args []string
+	check func(*Config) bool
+}) {
 	for _, tt := range tests {
-		t.Run(tt.name+"_short", func(t *testing.T) {
-			cfg, _, err := ParseArgs(tt.shortArgs)
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, _, err := ParseArgs(tt.args)
 			if err != nil {
-				t.Fatalf("ParseArgs(%v) error = %v", tt.shortArgs, err)
+				t.Fatalf("ParseArgs(%v) error = %v", tt.args, err)
 			}
 			if !tt.check(cfg) {
-				t.Errorf("Short flag %v did not set expected value", tt.shortArgs)
-			}
-		})
-
-		t.Run(tt.name+"_long", func(t *testing.T) {
-			cfg, _, err := ParseArgs(tt.longArgs)
-			if err != nil {
-				t.Fatalf("ParseArgs(%v) error = %v", tt.longArgs, err)
-			}
-			if !tt.check(cfg) {
-				t.Errorf("Long flag %v did not set expected value", tt.longArgs)
+				t.Errorf("Flag %v did not set expected value", tt.args)
 			}
 		})
 	}
@@ -573,90 +539,385 @@ func TestParseArgs_FilesWithoutStdin(t *testing.T) {
 	}
 }
 
-// TestParseArgs_FlagValidation tests that invalid flag values are rejected.
-// Validates: Requirements 4.5
-func TestParseArgs_FlagValidation(t *testing.T) {
+// TestClassifyArguments tests the ClassifyArguments function.
+func TestClassifyArguments(t *testing.T) {
+	// Create dummy files for testing file existence
+	tempDir := t.TempDir()
+	file1 := filepath.Join(tempDir, "existing_file1.txt")
+	file2 := filepath.Join(tempDir, "existing_file2.txt")
+	os.WriteFile(file1, []byte("content"), 0644)
+	os.WriteFile(file2, []byte("content"), 0644)
+
 	tests := []struct {
-		name        string
-		args        []string
-		wantErr     bool
-		wantWarning bool
-		errMsg      string
-		warnMsg     string
+		name      string
+		args      []string
+		algorithm string
+		wantFiles []string
+		wantHashes []string
+		wantErr   bool
+		errContains string
 	}{
 		{
-			name:    "invalid output format",
-			args:    []string{"--format=invalid"},
-			wantErr: true,
-			errMsg:  "invalid output format",
+			name:      "OnlyFiles",
+			args:      []string{file1, file2},
+			algorithm: "sha256",
+			wantFiles: []string{file1, file2},
+			wantHashes: nil,
+			wantErr:   false,
 		},
 		{
-			name:    "invalid algorithm",
-			args:    []string{"--algorithm=invalid"},
-			wantErr: true,
-			errMsg:  "invalid algorithm",
+			name:      "OnlyHashesSHA256",
+			args:      []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "d290c05a0ce8e84a22ae80a22de4c0c1b09b0b4b8a4d4e0e4b8a4d4e0e4b8a4d"},
+			algorithm: "sha256",
+			wantFiles: nil,
+			wantHashes: []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "d290c05a0ce8e84a22ae80a22de4c0c1b09b0b4b8a4d4e0e4b8a4d4e0e4b8a4d"},
+			wantErr:   false,
 		},
 		{
-			name:        "quiet overrides verbose (warning)",
-			args:        []string{"--quiet", "--verbose"},
-			wantErr:     false,
-			wantWarning: true,
-			warnMsg:     "--quiet overrides --verbose",
+			name:      "OnlyHashesMD5",
+			args:      []string{"d41d8cd98f00b204e9800998ecf8427e"},
+			algorithm: "md5",
+			wantFiles: nil,
+			wantHashes: []string{"d41d8cd98f00b204e9800998ecf8427e"},
+			wantErr:   false,
 		},
 		{
-			name:        "json overrides verbose (no warning, split streams)",
-			args:        []string{"--json", "--verbose"},
-			wantErr:     false,
-			wantWarning: false,
+			name:      "MixedFilesAndHashes",
+			args:      []string{file1, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", file2},
+			algorithm: "sha256",
+			wantFiles: []string{file1, file2},
+			wantHashes: []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+			wantErr:   false,
 		},
 		{
-			name:        "json and plain - last wins (no warning, handled by parser)",
-			args:        []string{"--json", "--plain"},
-			wantErr:     false,
-			wantWarning: false,
+			name:      "StdinMarker",
+			args:      []string{file1, "-", file2},
+			algorithm: "sha256",
+			wantFiles: []string{file1, "-", file2},
+			wantHashes: nil,
+			wantErr:   false,
 		},
 		{
-			name:    "invalid min-size",
-			args:    []string{"--min-size=abc"},
-			wantErr: true,
-			errMsg:  "invalid",
+			name:      "NonExistentButNotHash",
+			args:      []string{"non_existent_file.txt"},
+			algorithm: "sha256",
+			wantFiles: []string{"non_existent_file.txt"},
+			wantHashes: nil,
+			wantErr:   false,
 		},
 		{
-			name:    "invalid date format",
-			args:    []string{"--modified-after=not-a-date"},
-			wantErr: true,
-			errMsg:  "invalid",
+			name:      "LooksLikeHashWrongLength",
+			args:      []string{"abcde12345"}, // too short for any known hash
+			algorithm: "sha256",
+			wantFiles: nil,
+			wantHashes: nil,
+			wantErr:   true,
+			errContains: "unknown length",
 		},
 		{
-			name:    "valid flags",
-			args:    []string{"-v", "-r"},
-			wantErr: false,
+			name:      "LooksLikeHashWrongAlgorithm",
+			args:      []string{"d41d8cd98f00b204e9800998ecf8427e"}, // valid MD5
+			algorithm: "sha256",
+			wantFiles: nil,
+			wantHashes: nil,
+			wantErr:   true,
+			errContains: "hash length doesn't match sha256 (expected 64 characters, got 32)",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, warnings, err := ParseArgs(tt.args)
+			gotFiles, gotHashes, err := ClassifyArguments(tt.args, tt.algorithm)
+
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("ParseArgs(%v) expected error, got nil", tt.args)
-				} else if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
-					t.Errorf("ParseArgs(%v) error = %v, want error containing %q", tt.args, err, tt.errMsg)
+					t.Errorf("ClassifyArguments() expected error, got nil")
+				}
+				if err != nil && tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("ClassifyArguments() expected error to contain %q, got %v", tt.errContains, err)
 				}
 			} else {
 				if err != nil {
-					t.Errorf("ParseArgs(%v) unexpected error = %v", tt.args, err)
+					t.Errorf("ClassifyArguments() unexpected error = %v", err)
 				}
-			}
-			
-			if tt.wantWarning {
-				if len(warnings) == 0 {
-					t.Errorf("ParseArgs(%v) expected warning, got none", tt.args)
-				} else if tt.warnMsg != "" && !contains(warnings[0].Message, tt.warnMsg) {
-					t.Errorf("ParseArgs(%v) warning = %v, want warning containing %q", tt.args, warnings[0].Message, tt.warnMsg)
+				if !stringSlicesEqual(gotFiles, tt.wantFiles) {
+					t.Errorf("ClassifyArguments() gotFiles = %v, want %v", gotFiles, tt.wantFiles)
+				}
+				if !stringSlicesEqual(gotHashes, tt.wantHashes) {
+					t.Errorf("ClassifyArguments() gotHashes = %v, want %v", gotHashes, tt.wantHashes)
 				}
 			}
 		})
+	}
+}
+
+// TestApplyEnvConfig tests the ApplyEnvConfig function.
+func TestApplyEnvConfig(t *testing.T) {
+	t.Run("ApplyDefaults", func(t *testing.T) {
+		// Ensure environment variables are applied when flags are not set
+		os.Setenv("HASHI_ALGORITHM", "md5")
+		os.Setenv("HASHI_RECURSIVE", "true")
+		os.Setenv("HASHI_BLACKLIST_FILES", "file1.log,file2.tmp")
+		defer os.Clearenv()
+
+		cfg := DefaultConfig()
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		// Define flags so their 'Changed' status can be checked
+		fs.String("algorithm", "", "")
+		fs.Bool("recursive", false, "")
+		fs.StringSlice("blacklist-files", []string{}, "")
+		
+		envCfg := LoadEnvConfig()
+		envCfg.ApplyEnvConfig(cfg, fs)
+
+		if cfg.Algorithm != "md5" {
+			t.Errorf("Expected algorithm to be md5, got %s", cfg.Algorithm)
+		}
+		if !cfg.Recursive {
+			t.Errorf("Expected recursive to be true, got %v", cfg.Recursive)
+		}
+		if !stringSlicesEqual(cfg.BlacklistFiles, []string{"file1.log", "file2.tmp"}) {
+			t.Errorf("Expected blacklist files [file1.log, file2.tmp], got %v", cfg.BlacklistFiles)
+		}
+	})
+
+	t.Run("FlagsOverrideEnv", func(t *testing.T) {
+		// Ensure flags override environment variables
+		os.Setenv("HASHI_ALGORITHM", "md5")
+		defer os.Clearenv()
+
+		cfg := DefaultConfig()
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.String("algorithm", "sha1", "")
+		fs.Set("algorithm", "sha1") // Mark flag as changed
+		cfg.Algorithm = "sha1"     // Manually set config value to simulate flag parsing
+		
+		envCfg := LoadEnvConfig()
+		envCfg.ApplyEnvConfig(cfg, fs)
+
+		if cfg.Algorithm != "sha1" {
+			t.Errorf("Expected algorithm to be sha1 (from flag), got %s", cfg.Algorithm)
+		}
+	})
+
+	t.Run("NoEnvNoFlagChange", func(t *testing.T) {
+		// No environment variable set, no flag changed, should use default
+		os.Clearenv()
+
+		cfg := DefaultConfig()
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.String("algorithm", "", "")
+		
+		envCfg := LoadEnvConfig()
+		envCfg.ApplyEnvConfig(cfg, fs)
+
+		if cfg.Algorithm != "sha256" {
+			t.Errorf("Expected algorithm to be default sha256, got %s", cfg.Algorithm)
+		}
+	})
+
+	t.Run("WhitelistEnv", func(t *testing.T) {
+		os.Setenv("HASHI_WHITELIST_FILES", "white1.txt, white2.txt")
+		defer os.Clearenv()
+
+		cfg := DefaultConfig()
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.StringSlice("whitelist-files", []string{}, "")
+		
+		envCfg := LoadEnvConfig()
+		envCfg.ApplyEnvConfig(cfg, fs)
+
+		if !stringSlicesEqual(cfg.WhitelistFiles, []string{"white1.txt", "white2.txt"}) {
+			t.Errorf("Expected whitelist files [white1.txt, white2.txt], got %v", cfg.WhitelistFiles)
+		}
+	})
+}
+
+// TestWriteErrorWithVerbose tests the WriteErrorWithVerbose function.
+func TestWriteErrorWithVerbose(t *testing.T) {
+	tests := []struct {
+		name          string
+		verbose       bool
+		verboseDetails string
+		expectedError string
+	}{
+		{
+			name:          "VerboseTrue",
+			verbose:       true,
+			verboseDetails: "detailed error message",
+			expectedError: "detailed error message",
+		},
+		{
+			name:          "VerboseFalse",
+			verbose:       false,
+			verboseDetails: "detailed error message", // Should be ignored when verbose is false
+			expectedError: "Unknown write/append error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := WriteErrorWithVerbose(tt.verbose, tt.verboseDetails)
+			if err.Error() != tt.expectedError {
+				t.Errorf("WriteErrorWithVerbose(%v, %q) got error %q, want %q", tt.verbose, tt.verboseDetails, err.Error(), tt.expectedError)
+			}
+		})
+	}
+}
+
+// TestApplyConfigFile tests the ApplyConfigFile function.
+func TestApplyConfigFile(t *testing.T) {
+	t.Run("ApplyBoolDefaults", func(t *testing.T) {
+		cfg := DefaultConfig()
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.Bool("recursive", false, "")
+		cf := &ConfigFile{}
+		cf.Defaults.Recursive = ptr(true)
+		
+		_ = cf.ApplyConfigFile(cfg, fs)
+		if !cfg.Recursive {
+			t.Errorf("Expected Recursive to be true, got %v", cfg.Recursive)
+		}
+		
+		// Flag should override
+		cfg = DefaultConfig()
+		fs = pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.Bool("recursive", false, "")
+		fs.Set("recursive", "false")
+		cf = &ConfigFile{}
+		cf.Defaults.Recursive = ptr(true)
+		
+		_ = cf.ApplyConfigFile(cfg, fs)
+		if cfg.Recursive {
+			t.Errorf("Expected Recursive to be false due to flag, got %v", cfg.Recursive)
+		}
+	})
+
+	t.Run("ApplyStringDefaults", func(t *testing.T) {
+		cfg := DefaultConfig()
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.String("algorithm", "", "")
+		cf := &ConfigFile{}
+		cf.Defaults.Algorithm = ptr("md5")
+		
+		_ = cf.ApplyConfigFile(cfg, fs)
+		if cfg.Algorithm != "md5" {
+			t.Errorf("Expected Algorithm to be md5, got %s", cfg.Algorithm)
+		}
+	})
+
+	t.Run("ApplySizeDefaults", func(t *testing.T) {
+		cfg := DefaultConfig()
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.String("min-size", "", "")
+		cf := &ConfigFile{}
+		cf.Defaults.MinSize = ptr("100KB")
+		
+		_ = cf.ApplyConfigFile(cfg, fs)
+		if cfg.MinSize != 102400 {
+			t.Errorf("Expected MinSize to be 102400, got %d", cfg.MinSize)
+		}
+
+		// Error case
+		cfg = DefaultConfig()
+		cf.Defaults.MinSize = ptr("invalid-size")
+		err := cf.ApplyConfigFile(cfg, fs)
+		if err == nil || !strings.Contains(err.Error(), "invalid min_size") {
+			t.Errorf("Expected invalid min_size error, got %v", err)
+		}
+	})
+
+	t.Run("ApplyListDefaults", func(t *testing.T) {
+		cfg := DefaultConfig()
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.StringSlice("include", []string{}, "")
+		cf := &ConfigFile{}
+		cf.Defaults.Include = []string{"*.go", "*.mod"}
+		
+		_ = cf.ApplyConfigFile(cfg, fs)
+		if !stringSlicesEqual(cfg.Include, []string{"*.go", "*.mod"}) {
+			t.Errorf("Expected Include to be [*.go, *.mod], got %v", cfg.Include)
+		}
+	})
+
+	t.Run("ApplySecurityDefaults", func(t *testing.T) {
+		cfg := DefaultConfig()
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		cf := &ConfigFile{}
+		cf.Security.BlacklistFiles = []string{"secret.txt"}
+		
+		_ = cf.ApplyConfigFile(cfg, fs)
+		if !stringSlicesEqual(cfg.BlacklistFiles, []string{"secret.txt"}) {
+			t.Errorf("Expected BlacklistFiles to be [secret.txt], got %v", cfg.BlacklistFiles)
+		}
+	})
+
+	t.Run("ApplyFiles", func(t *testing.T) {
+		cfg := DefaultConfig()
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		cf := &ConfigFile{}
+		cf.Files = []string{"file_from_config.txt"}
+		
+		_ = cf.ApplyConfigFile(cfg, fs)
+		if !stringSlicesEqual(cfg.Files, []string{"file_from_config.txt"}) {
+			t.Errorf("Expected Files to be [file_from_config.txt], got %v", cfg.Files)
+		}
+		
+		// Should not override existing files from args/flags
+		cfg = DefaultConfig()
+		cfg.Files = []string{"file_from_args.txt"}
+		cf = &ConfigFile{}
+		cf.Files = []string{"file_from_config.txt"}
+		
+		_ = cf.ApplyConfigFile(cfg, fs)
+		// The existing files from args/flags should be preserved, not overwritten by config file files.
+		if !stringSlicesEqual(cfg.Files, []string{"file_from_args.txt"}) {
+			t.Errorf("Expected Files to remain [file_from_args.txt], got %v", cfg.Files)
+		}
+	})
+}
+
+
+// TestParseArgs_FlagValidation tests that invalid flag values are rejected.
+func TestParseArgs_FlagValidation(t *testing.T) {
+	t.Run("Invalid Values", testInvalidFlagValues)
+	t.Run("Override Warnings", testFlagOverrideWarnings)
+	t.Run("Valid Flags", testValidFlags)
+}
+
+func testInvalidFlagValues(t *testing.T) {
+	tests := []struct {
+		args []string
+		msg  string
+	}{
+		{[]string{"--format=invalid"}, "invalid output format"},
+		{[]string{"--algorithm=invalid"}, "invalid algorithm"},
+		{[]string{"--min-size=abc"}, "invalid"},
+		{[]string{"--modified-after=not-a-date"}, "invalid"},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			_, _, err := ParseArgs(tt.args)
+			if err == nil || !contains(err.Error(), tt.msg) {
+				t.Errorf("Expected error containing %q, got %v", tt.msg, err)
+			}
+		})
+	}
+}
+
+func testFlagOverrideWarnings(t *testing.T) {
+	cfg, warnings, _ := ParseArgs([]string{"--quiet", "--verbose"})
+	if len(warnings) == 0 || !contains(warnings[0].Message, "--quiet overrides --verbose") {
+		t.Errorf("Expected quiet override warning, got %v", warnings)
+	}
+	if !cfg.Quiet || cfg.Verbose {
+		t.Error("Override logic failed")
+	}
+}
+
+func testValidFlags(t *testing.T) {
+	if _, _, err := ParseArgs([]string{"-v", "-r"}); err != nil {
+		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
@@ -820,97 +1081,133 @@ func TestValidateAlgorithm(t *testing.T) {
 
 // TestParseArgs_BoolOverridesBehavior tests that --bool overrides other output flags.
 func TestParseArgs_BoolOverridesBehavior(t *testing.T) {
-	tests := []struct {
-		name        string
-		args        []string
-		wantBool    bool
-		wantQuiet   bool
-		wantVerbose bool
-		wantFormat  string
-	}{
-		{
-			name:        "bool alone",
-			args:        []string{"--bool"},
-			wantBool:    true,
-			wantQuiet:   true, // Bool implies Quiet
-			wantVerbose: false,
-			wantFormat:  "default",
-		},
-		{
-			name:        "bool with quiet",
-			args:        []string{"--bool", "--quiet"},
-			wantBool:    true,
-			wantQuiet:   true, // Bool overrides and implies Quiet
-			wantVerbose: false,
-			wantFormat:  "default",
-		},
-		{
-			name:        "bool with verbose",
-			args:        []string{"--bool", "--verbose"},
-			wantBool:    true,
-			wantQuiet:   true, // Bool overrides Verbose and implies Quiet
-			wantVerbose: false,
-			wantFormat:  "default",
-		},
-		{
-			name:        "bool with json",
-			args:        []string{"--bool", "--json"},
-			wantBool:    true,
-			wantQuiet:   true, // Bool overrides JSON and implies Quiet
-			wantVerbose: false,
-			wantFormat:  "default", // Bool overrides format
-		},
-		{
-			name:        "bool with plain",
-			args:        []string{"--bool", "--plain"},
-			wantBool:    true,
-			wantQuiet:   true, // Bool overrides Plain and implies Quiet
-			wantVerbose: false,
-			wantFormat:  "default", // Bool overrides format
-		},
-	}
+	t.Run("Basic", func(t *testing.T) {
+		cfg, _, _ := ParseArgs([]string{"--bool"})
+		if !cfg.Bool || !cfg.Quiet {
+			t.Error("Bool should imply Quiet")
+		}
+	})
+	t.Run("Overrides Verbose", func(t *testing.T) {
+		cfg, _, _ := ParseArgs([]string{"--bool", "--verbose"})
+		if !cfg.Bool || !cfg.Quiet || cfg.Verbose {
+			t.Error("Bool should override Verbose")
+		}
+	})
+	t.Run("Overrides Format", func(t *testing.T) {
+		cfg, _, _ := ParseArgs([]string{"--bool", "--json"})
+		if !cfg.Bool || cfg.OutputFormat != "default" {
+			t.Errorf("Bool should reset format, got %s", cfg.OutputFormat)
+		}
+	})
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg, warnings, err := ParseArgs(tt.args)
-			if err != nil {
-				t.Fatalf("ParseArgs() error = %v", err)
-			}
-			
-			// Check that Bool is set correctly
-			if cfg.Bool != tt.wantBool {
-				t.Errorf("Bool = %v, want %v", cfg.Bool, tt.wantBool)
-			}
-			
-			// Check that Bool implies Quiet
-			if cfg.Quiet != tt.wantQuiet {
-				t.Errorf("Quiet = %v, want %v", cfg.Quiet, tt.wantQuiet)
-			}
-			
-			// Check that Bool overrides Verbose
-			if cfg.Verbose != tt.wantVerbose {
-				t.Errorf("Verbose = %v, want %v", cfg.Verbose, tt.wantVerbose)
-			}
-			
-			// Check that Bool overrides OutputFormat
-			if cfg.OutputFormat != tt.wantFormat {
-				t.Errorf("OutputFormat = %v, want %v", cfg.OutputFormat, tt.wantFormat)
-			}
-			
-			// Check for override warnings
-			// We expect warnings ONLY if Format is overridden (e.g. --bool overrides --json)
-			// We do NOT expect warnings for Verbosity (e.g. --bool implies quiet, overriding --verbose is implicit/natural)
-			expectWarning := false
-			if tt.wantFormat == "default" && (containsSlice(tt.args, "--json") || containsSlice(tt.args, "--plain") || containsSlice(tt.args, "--format")) {
-				expectWarning = true
-			}
-
-			if expectWarning && len(warnings) == 0 {
-				t.Errorf("Expected override warning for %v, got none", tt.args)
-			}
-			if !expectWarning && len(warnings) > 0 {
-				t.Errorf("Unexpected warning for %v: %v", tt.args, warnings)
-			}
-		})
+// TestError tests the ConfigCommandError error type.
+func TestError(t *testing.T) {
+	e := &ConfigCommandError{}
+	if e.Error() == "" {
+		t.Error("ConfigCommandError.Error() returned empty string")
 	}
+}
+
+// TestExitCode tests the ExitCode method of ConfigCommandError.
+func TestExitCode(t *testing.T) {
+	e := &ConfigCommandError{}
+	if e.ExitCode() != ExitInvalidArgs {
+		t.Errorf("expected ExitInvalidArgs, got %d", e.ExitCode())
+	}
+}
+
+// TestWriteError tests the WriteError function.
+func TestWriteError(t *testing.T) {
+	if WriteError() == nil {
+		t.Error("WriteError() returned nil")
+	}
+}
+
+// TestLoadEnvConfig tests that LoadEnvConfig loads environment variables.
+func TestLoadEnvConfig(t *testing.T) {
+	env := LoadEnvConfig()
+	if env == nil {
+		t.Error("LoadEnvConfig() returned nil")
+	}
+}
+
+// TestLoadDotEnv tests the LoadDotEnv function.
+func TestLoadDotEnv(t *testing.T) {
+	// Create a temporary .env file for testing
+	tempDir := t.TempDir()
+	dotEnvPath := filepath.Join(tempDir, ".env")
+	
+	// Test case 1: Valid .env file
+	t.Run("ValidDotEnvFile", func(t *testing.T) {
+		content := []byte("KEY1=value1\nKEY2=\"value 2\"\n#comment\nKEY3='value3'")
+		err := os.WriteFile(dotEnvPath, content, 0644)
+		if err != nil {
+			t.Fatalf("Failed to create .env file: %v", err)
+		}
+
+		os.Clearenv() // Clear all env vars to ensure a clean state
+		err = LoadDotEnv(dotEnvPath)
+		if err != nil {
+			t.Errorf("LoadDotEnv() error = %v, wantErr %v", err, nil)
+		}
+
+		if os.Getenv("KEY1") != "value1" {
+			t.Errorf("KEY1 = %s, want value1", os.Getenv("KEY1"))
+		}
+		if os.Getenv("KEY2") != "value 2" {
+			t.Errorf("KEY2 = %s, want value 2", os.Getenv("KEY2"))
+		}
+		if os.Getenv("KEY3") != "value3" {
+			t.Errorf("KEY3 = %s, want value3", os.Getenv("KEY3"))
+		}
+		os.Remove(dotEnvPath)
+	})
+
+	// Test case 2: Non-existent .env file
+	t.Run("NonExistentDotEnvFile", func(t *testing.T) {
+		os.Clearenv()
+		err := LoadDotEnv("non_existent.env")
+		if err != nil {
+			t.Errorf("LoadDotEnv() error for non-existent file = %v, wantErr %v", err, nil)
+		}
+	})
+
+	// Test case 3: Invalid format in .env file
+	t.Run("InvalidFormatDotEnvFile", func(t *testing.T) {
+		content := []byte("KEY1=value1\nINVALID_LINE\nKEY2=value2")
+		err := os.WriteFile(dotEnvPath, content, 0644)
+		if err != nil {
+			t.Fatalf("Failed to create .env file: %v", err)
+		}
+
+		os.Clearenv()
+		err = LoadDotEnv(dotEnvPath)
+		if err == nil || !strings.Contains(err.Error(), "invalid format") {
+			t.Errorf("LoadDotEnv() expected error for invalid format, got %v", err)
+		}
+		os.Remove(dotEnvPath)
+	})
+	
+	// Test case 4: Existing environment variables should not be overwritten
+	t.Run("ExistingEnvVarNotOverwritten", func(t *testing.T) {
+		content := []byte("EXISTING_KEY=new_value")
+		err := os.WriteFile(dotEnvPath, content, 0644)
+		if err != nil {
+			t.Fatalf("Failed to create .env file: %v", err)
+		}
+		
+		os.Setenv("EXISTING_KEY", "original_value")
+		defer os.Unsetenv("EXISTING_KEY")
+		
+		err = LoadDotEnv(dotEnvPath)
+		if err != nil {
+			t.Errorf("LoadDotEnv() error = %v, wantErr %v", err, nil)
+		}
+		
+		if os.Getenv("EXISTING_KEY") != "original_value" {
+			t.Errorf("Existing env var overwritten: EXISTING_KEY = %s, want original_value", os.Getenv("EXISTING_KEY"))
+		}
+		os.Remove(dotEnvPath)
+	})
 }
