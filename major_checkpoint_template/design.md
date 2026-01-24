@@ -17,7 +17,6 @@ graph TD
     E[Flag System] --> G
     F[Quality Engine] --> G
     H[Cleanup Manager] --> G
-    
     G --> I[Issue Tracker]
     G --> J[Remediation Plan]
     G --> K[Developer Onboarding Guide]
@@ -298,9 +297,9 @@ The cleanup system provides multiple interfaces for managing temporary build art
 
 ```mermaid
 graph TD
-    A[Check Tmpfs Usage] --> B{Above Threshold?}
+    A[Check Tmpfs Usage] --> B{"Above Threshold?"}
     B -->|Yes| C[Start Cleanup]
-    B -->|No| D{Force Flag?}
+    B -->|No| D{"Force Flag?"}
     D -->|Yes| C
     D -->|No| E[Skip Cleanup]
     C --> F[Remove Go Build Artifacts]

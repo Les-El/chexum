@@ -15,12 +15,12 @@ This implementation plan systematically transforms the hashi project into a "rea
 
 **Example of proper task completion:**
 ```
-- [x] 1. Set up analysis infrastructure and core interfaces
+- [ ] 1. Set up analysis infrastructure and core interfaces
 ```
 
 ## Tasks
 
-_**As tasks are completed, mark them with `[x]` and update `major_checkpoint_template/checkpoint_notes.md` with callouts, items to revisit, and changelog entries.**_  
+_**As tasks are completed, mark them with `[ ]` and update `major_checkpoint_template/checkpoint_notes.md` with callouts, items to revisit, and changelog entries.**_  
 
 - [ ] 1. Verify existing analysis infrastructure
   - Confirm analysis engines are operational in `internal/checkpoint/`

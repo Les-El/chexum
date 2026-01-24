@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.22] - 2026-01-24
+
+### Added
+- Comprehensive test coverage for `internal/config` package.
+- CLI integration tests for `cmd/hashi`.
+- Property-based tests for `internal/hash` and `internal/conflict`.
+- Benchmarks for hashing operations.
+- "Reviewed: LONG-FUNCTION" marker support in quality engine to suppress intentional quality violations.
+
+### Changed
+- Relocated major checkpoint templates to `major_checkpoint_template/`.
+- Improved test discovery in `testing_battery` to be package-aware.
+
+### Fixed
+- Various quality issues identified during stabilization phase.
+
 ## [0.0.19] - 2026-01-21
 
 ### Removed

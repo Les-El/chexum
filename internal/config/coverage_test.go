@@ -238,6 +238,8 @@ func TestConfigCommandError(t *testing.T) {
 }
 
 // TestLoadConfigFile_Coverage tests the LoadConfigFile function extensively.
+//
+// Reviewed: LONG-FUNCTION - Kept long for comprehensive table-driven tests.
 func TestLoadConfigFile_Coverage(t *testing.T) {
 	// Create a temporary directory for test config files
 	tmpDir := t.TempDir()

@@ -161,6 +161,9 @@ func (t *TestingBattery) IdentifyLowCoverage(ctx context.Context, rootPath strin
 func (t *TestingBattery) CreateUnitTests(ctx context.Context, rootPath string) ([]Issue, error) {
 	var issues []Issue
 
+	// Map of package path to tested functions in that package
+	packageTests := make(map[string]map[string]bool)
+
 	// Scan packages for missing unit tests
 	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -171,25 +174,20 @@ func (t *TestingBattery) CreateUnitTests(ctx context.Context, rootPath string) (
 			return nil
 		}
 
+		dir := filepath.Dir(path)
+		testedFuncs, ok := packageTests[dir]
+		if !ok {
+			testedFuncs = t.getPackageTestedFunctions(dir)
+			packageTests[dir] = testedFuncs
+		}
+
 		f, err := parser.ParseFile(t.fset, path, nil, parser.ParseComments)
 		if err != nil {
 			return nil
 		}
 
-		// Check if a test file exists
-		testFilePath := strings.TrimSuffix(path, ".go") + "_test.go"
-		testFileExists := false
-		if _, err := os.Stat(testFilePath); err == nil {
-			testFileExists = true
-		}
-
-		var testedFuncs map[string]bool
-		if testFileExists {
-			testedFuncs = t.getTestedFunctions(testFilePath)
-		}
-
 		ast.Inspect(f, func(n ast.Node) bool {
-			if fnIssues := t.checkMissingTests(n, path, testFilePath, testedFuncs); fnIssues != nil {
+			if fnIssues := t.checkMissingTests(n, path, testedFuncs); fnIssues != nil {
 				issues = append(issues, fnIssues...)
 			}
 			return true
@@ -201,7 +199,26 @@ func (t *TestingBattery) CreateUnitTests(ctx context.Context, rootPath string) (
 	return issues, err
 }
 
-func (t *TestingBattery) checkMissingTests(n ast.Node, path, testFilePath string, testedFuncs map[string]bool) []Issue {
+func (t *TestingBattery) getPackageTestedFunctions(dir string) map[string]bool {
+	funcs := make(map[string]bool)
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return funcs
+	}
+
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), "_test.go") {
+			testFilePath := filepath.Join(dir, f.Name())
+			fileFuncs := t.getTestedFunctions(testFilePath)
+			for k, v := range fileFuncs {
+				funcs[k] = v
+			}
+		}
+	}
+	return funcs
+}
+
+func (t *TestingBattery) checkMissingTests(n ast.Node, path string, testedFuncs map[string]bool) []Issue {
 	fn, ok := n.(*ast.FuncDecl)
 	if !ok || !fn.Name.IsExported() {
 		return nil
@@ -239,7 +256,7 @@ func (t *TestingBattery) checkMissingTests(n ast.Node, path, testFilePath string
 		Title:       "Missing unit test for exported function",
 		Description: fmt.Sprintf("Function '%s' in '%s' has no corresponding unit test.", fn.Name.Name, path),
 		Location:    path,
-		Suggestion:  fmt.Sprintf("Add %s to %s", testName, testFilePath),
+		Suggestion:  fmt.Sprintf("Add %s to the package test suite", testName),
 		Effort:      Small,
 		Priority:    P2,
 	}}

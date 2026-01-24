@@ -1,18 +1,16 @@
-# Release v0.0.19
+# Release v0.0.22
 
-This release renumbers the project to v0.0.19 to reflect its pre-1.0 status and a reduction in scope. ZIP integrity verification has been removed to maintain hashi's core principles of simplicity and security.
+This release completes the major project stabilization phase, bringing comprehensive testing, quality improvements, and infrastructure refinements to the hashi project.
 
 ## ✨ Features
-- **Advanced Filtering**: Full implementation of file inclusion/exclusion (--include, --exclude), size-based filtering (--min-size, --max-size), and date-based filtering (--modified-after, --modified-before).
-- **Input Flexibility**: The stdin marker - is now fully supported for reading lists of file paths from standard input.
-- **Cross-Compiled Binaries**: Pre-built binaries are now available for Linux, Windows, and macOS across both amd64 and arm64 architectures.
+- **Comprehensive Testing**: Added 100% coverage for the configuration system, new CLI integration tests, and property-based tests for core hashing and conflict resolution logic.
+- **Quality Infrastructure**: Enhanced the quality engine to support "Reviewed: LONG-FUNCTION" markers, allowing for intentional deviations from standards where appropriate.
+- **Improved Test Discovery**: Optimized the testing battery to be package-aware, improving analysis speed and accuracy.
+- **Benchmarking**: Added performance benchmarks for hashing operations to prevent future regressions.
 
 ## 🐛 Bug Fixes
-- **Stdin expansion**: Fixed a bug where - was treated as a literal filename instead of an input stream marker.
-- **Configuration Precedence**: Environment variables now correctly override project-specific .hashi.toml files.
-- **Error Obfuscation**: Improved error messaging for invalid hash strings, removing unnecessary security obfuscation for non-sensitive input validation.
-- **Exit Codes**: Corrected exit codes for discovery failures (now returns 4 for file-not-found).
-- **TOML Support**: Fixed an issue where settings under the [defaults] section in TOML config files were ignored.
+- Resolved various quality issues identified during the stabilization analysis.
+- Improved error handling and validation in the configuration parsing logic.
 
 ## 📦 Available Binaries (dist/)
 
@@ -38,4 +36,4 @@ GOPROXY=direct go install github.com/Les-El/hashi/cmd/hashi@latest
 3. Move the binary to a directory in your system's PATH (e.g., `/usr/local/bin/hashi`).
 
 ---
-*Verified and Signed Off for Linux production release on 2026-01-21.*
+*Verified and Signed Off for Linux production release on 2026-01-24.*

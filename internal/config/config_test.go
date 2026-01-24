@@ -41,7 +41,7 @@ func TestParseArgs_Bool(t *testing.T) {
 			if cfg.Bool != tt.want {
 				t.Errorf("Bool = %v, want %v", cfg.Bool, tt.want)
 			}
-			
+
 			// Bool now overrides and implies Quiet behavior
 			// Bool should automatically set Quiet=true
 			if tt.want && !cfg.Quiet {
@@ -263,7 +263,7 @@ func TestParseArgs_FlagOrderIndependence_Property(t *testing.T) {
 	for _, flags := range flagSets {
 		// Generate all permutations and verify they produce equivalent configs
 		permutations := generatePermutations(flags)
-		
+
 		var baseConfig *Config
 		for i, perm := range permutations {
 			cfg, _, err := ParseArgs(perm)
@@ -288,7 +288,7 @@ func generatePermutations(arr []string) [][]string {
 	if len(arr) <= 1 {
 		return [][]string{arr}
 	}
-	
+
 	// Limit to first 24 permutations (4! = 24) to keep tests fast
 	var result [][]string
 	permute(arr, 0, &result, 24)
@@ -401,7 +401,7 @@ func TestParseArgs_AbbreviationRejection(t *testing.T) {
 		arg     string
 		wantErr bool
 	}{
-		{"--verb", true}, // Abbreviation of --verbose
+		{"--verb", true},  // Abbreviation of --verbose
 		{"--help", false}, // Exact match
 		{"-v", false},     // Exact short flag
 		{"--vers", true},  // Abbreviation of --version
@@ -441,8 +441,8 @@ func TestParseArgs_ShortAndLongFlags(t *testing.T) {
 
 func testBooleanFlags(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
+		name  string
+		args  []string
 		check func(*Config) bool
 	}{
 		{"recursive_short", []string{"-r"}, func(c *Config) bool { return c.Recursive }},
@@ -455,8 +455,8 @@ func testBooleanFlags(t *testing.T) {
 
 func testValueFlags(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
+		name  string
+		args  []string
 		check func(*Config) bool
 	}{
 		{"algorithm", []string{"-a", "md5"}, func(c *Config) bool { return c.Algorithm == "md5" }},
@@ -467,8 +467,8 @@ func testValueFlags(t *testing.T) {
 
 func testSliceFlags(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
+		name  string
+		args  []string
 		check func(*Config) bool
 	}{
 		{"include", []string{"-i", "*.txt"}, func(c *Config) bool { return len(c.Include) == 1 }},
@@ -478,8 +478,8 @@ func testSliceFlags(t *testing.T) {
 }
 
 func runParseSubtests(t *testing.T, tests []struct {
-	name string
-	args []string
+	name  string
+	args  []string
 	check func(*Config) bool
 }) {
 	for _, tt := range tests {
@@ -523,23 +523,42 @@ func TestParseArgs_StdinSupport(t *testing.T) {
 	}
 }
 
-// TestParseArgs_FilesWithoutStdin tests that FilesWithoutStdin removes stdin marker.
-func TestParseArgs_FilesWithoutStdin(t *testing.T) {
-	cfg, _, err := ParseArgs([]string{"file1.txt", "-", "file2.txt"})
-	if err != nil {
-		t.Fatalf("ParseArgs() error = %v", err)
+// TestParseArgs_FilesWithoutStdin tests the FilesWithoutStdin method.
+//
+// Reviewed: LONG-FUNCTION - Kept long for comprehensive tests.
+func TestFilesWithoutStdin(t *testing.T) {
+	cfg := &Config{
+		Files: []string{"file1.txt", "-", "file2.txt"},
 	}
-
-	files := cfg.FilesWithoutStdin()
-	if len(files) != 2 {
-		t.Errorf("FilesWithoutStdin() returned %d files, want 2", len(files))
-	}
-	if files[0] != "file1.txt" || files[1] != "file2.txt" {
-		t.Errorf("FilesWithoutStdin() = %v, want [file1.txt file2.txt]", files)
+	got := cfg.FilesWithoutStdin()
+	want := []string{"file1.txt", "file2.txt"}
+	if !stringSlicesEqual(got, want) {
+		t.Errorf("FilesWithoutStdin() = %v, want %v", got, want)
 	}
 }
 
-// TestClassifyArguments tests the ClassifyArguments function.
+// TestHasStdinMarker tests the HasStdinMarker method.
+func TestHasStdinMarker(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+		want  bool
+	}{
+		{"with stdin", []string{"file.txt", "-"}, true},
+		{"without stdin", []string{"file.txt", "other.txt"}, false},
+		{"empty", []string{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Files: tt.files}
+			if cfg.HasStdinMarker() != tt.want {
+				t.Errorf("HasStdinMarker() = %v, want %v", cfg.HasStdinMarker(), tt.want)
+			}
+		})
+	}
+}
+
+// Reviewed: LONG-FUNCTION - Kept long for comprehensive table-driven tests.
 func TestClassifyArguments(t *testing.T) {
 	// Create dummy files for testing file existence
 	tempDir := t.TempDir()
@@ -549,78 +568,78 @@ func TestClassifyArguments(t *testing.T) {
 	os.WriteFile(file2, []byte("content"), 0644)
 
 	tests := []struct {
-		name      string
-		args      []string
-		algorithm string
-		wantFiles []string
-		wantHashes []string
-		wantErr   bool
+		name        string
+		args        []string
+		algorithm   string
+		wantFiles   []string
+		wantHashes  []string
+		wantErr     bool
 		errContains string
 	}{
 		{
-			name:      "OnlyFiles",
-			args:      []string{file1, file2},
-			algorithm: "sha256",
-			wantFiles: []string{file1, file2},
+			name:       "OnlyFiles",
+			args:       []string{file1, file2},
+			algorithm:  "sha256",
+			wantFiles:  []string{file1, file2},
 			wantHashes: nil,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "OnlyHashesSHA256",
-			args:      []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "d290c05a0ce8e84a22ae80a22de4c0c1b09b0b4b8a4d4e0e4b8a4d4e0e4b8a4d"},
-			algorithm: "sha256",
-			wantFiles: nil,
+			name:       "OnlyHashesSHA256",
+			args:       []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "d290c05a0ce8e84a22ae80a22de4c0c1b09b0b4b8a4d4e0e4b8a4d4e0e4b8a4d"},
+			algorithm:  "sha256",
+			wantFiles:  nil,
 			wantHashes: []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "d290c05a0ce8e84a22ae80a22de4c0c1b09b0b4b8a4d4e0e4b8a4d4e0e4b8a4d"},
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "OnlyHashesMD5",
-			args:      []string{"d41d8cd98f00b204e9800998ecf8427e"},
-			algorithm: "md5",
-			wantFiles: nil,
+			name:       "OnlyHashesMD5",
+			args:       []string{"d41d8cd98f00b204e9800998ecf8427e"},
+			algorithm:  "md5",
+			wantFiles:  nil,
 			wantHashes: []string{"d41d8cd98f00b204e9800998ecf8427e"},
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "MixedFilesAndHashes",
-			args:      []string{file1, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", file2},
-			algorithm: "sha256",
-			wantFiles: []string{file1, file2},
+			name:       "MixedFilesAndHashes",
+			args:       []string{file1, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", file2},
+			algorithm:  "sha256",
+			wantFiles:  []string{file1, file2},
 			wantHashes: []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "StdinMarker",
-			args:      []string{file1, "-", file2},
-			algorithm: "sha256",
-			wantFiles: []string{file1, "-", file2},
+			name:       "StdinMarker",
+			args:       []string{file1, "-", file2},
+			algorithm:  "sha256",
+			wantFiles:  []string{file1, "-", file2},
 			wantHashes: nil,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "NonExistentButNotHash",
-			args:      []string{"non_existent_file.txt"},
-			algorithm: "sha256",
-			wantFiles: []string{"non_existent_file.txt"},
+			name:       "NonExistentButNotHash",
+			args:       []string{"non_existent_file.txt"},
+			algorithm:  "sha256",
+			wantFiles:  []string{"non_existent_file.txt"},
 			wantHashes: nil,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "LooksLikeHashWrongLength",
-			args:      []string{"abcde12345"}, // too short for any known hash
-			algorithm: "sha256",
-			wantFiles: nil,
-			wantHashes: nil,
-			wantErr:   true,
+			name:        "LooksLikeHashWrongLength",
+			args:        []string{"abcde12345"}, // too short for any known hash
+			algorithm:   "sha256",
+			wantFiles:   nil,
+			wantHashes:  nil,
+			wantErr:     true,
 			errContains: "unknown length",
 		},
 		{
-			name:      "LooksLikeHashWrongAlgorithm",
-			args:      []string{"d41d8cd98f00b204e9800998ecf8427e"}, // valid MD5
-			algorithm: "sha256",
-			wantFiles: nil,
-			wantHashes: nil,
-			wantErr:   true,
+			name:        "LooksLikeHashWrongAlgorithm",
+			args:        []string{"d41d8cd98f00b204e9800998ecf8427e"}, // valid MD5
+			algorithm:   "sha256",
+			wantFiles:   nil,
+			wantHashes:  nil,
+			wantErr:     true,
 			errContains: "hash length doesn't match sha256 (expected 64 characters, got 32)",
 		},
 	}
@@ -652,6 +671,8 @@ func TestClassifyArguments(t *testing.T) {
 }
 
 // TestApplyEnvConfig tests the ApplyEnvConfig function.
+//
+// Reviewed: LONG-FUNCTION - Kept long for comprehensive table-driven tests.
 func TestApplyEnvConfig(t *testing.T) {
 	t.Run("ApplyDefaults", func(t *testing.T) {
 		// Ensure environment variables are applied when flags are not set
@@ -666,7 +687,7 @@ func TestApplyEnvConfig(t *testing.T) {
 		fs.String("algorithm", "", "")
 		fs.Bool("recursive", false, "")
 		fs.StringSlice("blacklist-files", []string{}, "")
-		
+
 		envCfg := LoadEnvConfig()
 		envCfg.ApplyEnvConfig(cfg, fs)
 
@@ -690,8 +711,8 @@ func TestApplyEnvConfig(t *testing.T) {
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		fs.String("algorithm", "sha1", "")
 		fs.Set("algorithm", "sha1") // Mark flag as changed
-		cfg.Algorithm = "sha1"     // Manually set config value to simulate flag parsing
-		
+		cfg.Algorithm = "sha1"      // Manually set config value to simulate flag parsing
+
 		envCfg := LoadEnvConfig()
 		envCfg.ApplyEnvConfig(cfg, fs)
 
@@ -707,7 +728,7 @@ func TestApplyEnvConfig(t *testing.T) {
 		cfg := DefaultConfig()
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		fs.String("algorithm", "", "")
-		
+
 		envCfg := LoadEnvConfig()
 		envCfg.ApplyEnvConfig(cfg, fs)
 
@@ -723,7 +744,7 @@ func TestApplyEnvConfig(t *testing.T) {
 		cfg := DefaultConfig()
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		fs.StringSlice("whitelist-files", []string{}, "")
-		
+
 		envCfg := LoadEnvConfig()
 		envCfg.ApplyEnvConfig(cfg, fs)
 
@@ -736,22 +757,22 @@ func TestApplyEnvConfig(t *testing.T) {
 // TestWriteErrorWithVerbose tests the WriteErrorWithVerbose function.
 func TestWriteErrorWithVerbose(t *testing.T) {
 	tests := []struct {
-		name          string
-		verbose       bool
+		name           string
+		verbose        bool
 		verboseDetails string
-		expectedError string
+		expectedError  string
 	}{
 		{
-			name:          "VerboseTrue",
-			verbose:       true,
+			name:           "VerboseTrue",
+			verbose:        true,
 			verboseDetails: "detailed error message",
-			expectedError: "detailed error message",
+			expectedError:  "detailed error message",
 		},
 		{
-			name:          "VerboseFalse",
-			verbose:       false,
+			name:           "VerboseFalse",
+			verbose:        false,
 			verboseDetails: "detailed error message", // Should be ignored when verbose is false
-			expectedError: "Unknown write/append error",
+			expectedError:  "Unknown write/append error",
 		},
 	}
 
@@ -766,6 +787,8 @@ func TestWriteErrorWithVerbose(t *testing.T) {
 }
 
 // TestApplyConfigFile tests the ApplyConfigFile function.
+//
+// Reviewed: LONG-FUNCTION - Kept long for comprehensive table-driven tests.
 func TestApplyConfigFile(t *testing.T) {
 	t.Run("ApplyBoolDefaults", func(t *testing.T) {
 		cfg := DefaultConfig()
@@ -773,12 +796,12 @@ func TestApplyConfigFile(t *testing.T) {
 		fs.Bool("recursive", false, "")
 		cf := &ConfigFile{}
 		cf.Defaults.Recursive = ptr(true)
-		
+
 		_ = cf.ApplyConfigFile(cfg, fs)
 		if !cfg.Recursive {
 			t.Errorf("Expected Recursive to be true, got %v", cfg.Recursive)
 		}
-		
+
 		// Flag should override
 		cfg = DefaultConfig()
 		fs = pflag.NewFlagSet("test", pflag.ContinueOnError)
@@ -786,7 +809,7 @@ func TestApplyConfigFile(t *testing.T) {
 		fs.Set("recursive", "false")
 		cf = &ConfigFile{}
 		cf.Defaults.Recursive = ptr(true)
-		
+
 		_ = cf.ApplyConfigFile(cfg, fs)
 		if cfg.Recursive {
 			t.Errorf("Expected Recursive to be false due to flag, got %v", cfg.Recursive)
@@ -799,7 +822,7 @@ func TestApplyConfigFile(t *testing.T) {
 		fs.String("algorithm", "", "")
 		cf := &ConfigFile{}
 		cf.Defaults.Algorithm = ptr("md5")
-		
+
 		_ = cf.ApplyConfigFile(cfg, fs)
 		if cfg.Algorithm != "md5" {
 			t.Errorf("Expected Algorithm to be md5, got %s", cfg.Algorithm)
@@ -812,7 +835,7 @@ func TestApplyConfigFile(t *testing.T) {
 		fs.String("min-size", "", "")
 		cf := &ConfigFile{}
 		cf.Defaults.MinSize = ptr("100KB")
-		
+
 		_ = cf.ApplyConfigFile(cfg, fs)
 		if cfg.MinSize != 102400 {
 			t.Errorf("Expected MinSize to be 102400, got %d", cfg.MinSize)
@@ -833,7 +856,7 @@ func TestApplyConfigFile(t *testing.T) {
 		fs.StringSlice("include", []string{}, "")
 		cf := &ConfigFile{}
 		cf.Defaults.Include = []string{"*.go", "*.mod"}
-		
+
 		_ = cf.ApplyConfigFile(cfg, fs)
 		if !stringSlicesEqual(cfg.Include, []string{"*.go", "*.mod"}) {
 			t.Errorf("Expected Include to be [*.go, *.mod], got %v", cfg.Include)
@@ -845,7 +868,7 @@ func TestApplyConfigFile(t *testing.T) {
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		cf := &ConfigFile{}
 		cf.Security.BlacklistFiles = []string{"secret.txt"}
-		
+
 		_ = cf.ApplyConfigFile(cfg, fs)
 		if !stringSlicesEqual(cfg.BlacklistFiles, []string{"secret.txt"}) {
 			t.Errorf("Expected BlacklistFiles to be [secret.txt], got %v", cfg.BlacklistFiles)
@@ -857,18 +880,18 @@ func TestApplyConfigFile(t *testing.T) {
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		cf := &ConfigFile{}
 		cf.Files = []string{"file_from_config.txt"}
-		
+
 		_ = cf.ApplyConfigFile(cfg, fs)
 		if !stringSlicesEqual(cfg.Files, []string{"file_from_config.txt"}) {
 			t.Errorf("Expected Files to be [file_from_config.txt], got %v", cfg.Files)
 		}
-		
+
 		// Should not override existing files from args/flags
 		cfg = DefaultConfig()
 		cfg.Files = []string{"file_from_args.txt"}
 		cf = &ConfigFile{}
 		cf.Files = []string{"file_from_config.txt"}
-		
+
 		_ = cf.ApplyConfigFile(cfg, fs)
 		// The existing files from args/flags should be preserved, not overwritten by config file files.
 		if !stringSlicesEqual(cfg.Files, []string{"file_from_args.txt"}) {
@@ -876,7 +899,6 @@ func TestApplyConfigFile(t *testing.T) {
 		}
 	})
 }
-
 
 // TestParseArgs_FlagValidation tests that invalid flag values are rejected.
 func TestParseArgs_FlagValidation(t *testing.T) {
@@ -1133,11 +1155,13 @@ func TestLoadEnvConfig(t *testing.T) {
 }
 
 // TestLoadDotEnv tests the LoadDotEnv function.
+//
+// Reviewed: LONG-FUNCTION - Kept long for comprehensive table-driven tests.
 func TestLoadDotEnv(t *testing.T) {
 	// Create a temporary .env file for testing
 	tempDir := t.TempDir()
 	dotEnvPath := filepath.Join(tempDir, ".env")
-	
+
 	// Test case 1: Valid .env file
 	t.Run("ValidDotEnvFile", func(t *testing.T) {
 		content := []byte("KEY1=value1\nKEY2=\"value 2\"\n#comment\nKEY3='value3'")
@@ -1188,26 +1212,133 @@ func TestLoadDotEnv(t *testing.T) {
 		}
 		os.Remove(dotEnvPath)
 	})
-	
+
 	// Test case 4: Existing environment variables should not be overwritten
+
 	t.Run("ExistingEnvVarNotOverwritten", func(t *testing.T) {
+
 		content := []byte("EXISTING_KEY=new_value")
+
 		err := os.WriteFile(dotEnvPath, content, 0644)
+
 		if err != nil {
+
 			t.Fatalf("Failed to create .env file: %v", err)
+
 		}
-		
+
 		os.Setenv("EXISTING_KEY", "original_value")
+
 		defer os.Unsetenv("EXISTING_KEY")
-		
+
 		err = LoadDotEnv(dotEnvPath)
+
 		if err != nil {
+
 			t.Errorf("LoadDotEnv() error = %v, wantErr %v", err, nil)
+
 		}
-		
+
 		if os.Getenv("EXISTING_KEY") != "original_value" {
+
 			t.Errorf("Existing env var overwritten: EXISTING_KEY = %s, want original_value", os.Getenv("EXISTING_KEY"))
+
 		}
+
 		os.Remove(dotEnvPath)
+
 	})
+
+}
+
+// TestParseArgs tests the ParseArgs function.
+
+func TestParseArgs(t *testing.T) {
+
+	args := []string{"--algorithm", "md5", "file.txt"}
+
+	// Create test file
+
+	os.WriteFile("file.txt", []byte("hello"), 0644)
+
+	defer os.Remove("file.txt")
+
+	cfg, warnings, err := ParseArgs(args)
+
+	if err != nil {
+
+		t.Errorf("ParseArgs() error = %v", err)
+
+	}
+
+	if cfg.Algorithm != "md5" {
+
+		t.Errorf("Algorithm = %s, want md5", cfg.Algorithm)
+
+	}
+
+	if len(warnings) > 0 {
+
+		t.Logf("Warnings: %v", warnings)
+
+	}
+
+}
+
+// TestValidateConfig tests the ValidateConfig function.
+
+func TestValidateConfig(t *testing.T) {
+
+	cfg := DefaultConfig()
+
+	cfg.Files = []string{"test.txt"}
+
+	// Create test file
+
+	os.WriteFile("test.txt", []byte("hello"), 0644)
+
+	defer os.Remove("test.txt")
+
+	warnings, err := ValidateConfig(cfg)
+
+	if err != nil {
+
+		t.Errorf("ValidateConfig() error = %v", err)
+
+	}
+
+	if len(warnings) > 0 {
+
+		t.Logf("Warnings: %v", warnings)
+
+	}
+
+}
+
+// TestLoadConfigFile tests the LoadConfigFile function.
+
+func TestLoadConfigFile(t *testing.T) {
+
+	path := "test_config_simple.toml"
+
+	content := "[defaults]\nalgorithm = \"md5\""
+
+	os.WriteFile(path, []byte(content), 0644)
+
+	defer os.Remove(path)
+
+	cfg, err := LoadConfigFile(path)
+
+	if err != nil {
+
+		t.Errorf("LoadConfigFile() error = %v", err)
+
+	}
+
+	if *cfg.Defaults.Algorithm != "md5" {
+
+		t.Errorf("Algorithm = %s, want md5", *cfg.Defaults.Algorithm)
+
+	}
+
 }
