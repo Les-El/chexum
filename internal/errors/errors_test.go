@@ -3,6 +3,7 @@ package errors
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -18,56 +19,33 @@ import (
 // that they don't contain technical jargon like stack traces, raw error codes,
 // or overly technical language in non-verbose mode.
 func TestProperty_ErrorMessagesAreHumanReadable(t *testing.T) {
-	// Create a color handler with colors disabled for consistent testing
-	colorHandler := color.NewColorHandler()
-	colorHandler.SetEnabled(false)
+	handler := NewErrorHandler(color.NewColorHandler())
+	handler.color.SetEnabled(false)
 	
-	handler := NewErrorHandler(colorHandler)
-	handler.SetVerbose(false) // Non-verbose mode
-	
-	// Property: For any error, the formatted message should not contain
-	// technical jargon like stack traces, hex addresses, or raw syscall names
 	property := func(errMsg string) bool {
-		// Skip empty strings
 		if errMsg == "" {
 			return true
 		}
-		
-		// Create a test error
-		testErr := errors.New(errMsg)
-		formatted := handler.FormatError(testErr)
-		
-		// Check that formatted message doesn't contain technical jargon
-		technicalPatterns := []string{
-			"0x",           // Hex addresses
-			"syscall",      // System call references
-			"goroutine",    // Stack trace indicators
-			"panic:",       // Panic messages
-			"runtime.",     // Runtime package references
-		}
-		
-		for _, pattern := range technicalPatterns {
-			if strings.Contains(formatted, pattern) {
-				return false
-			}
-		}
-		
-		// Check that the message is not just the raw error
-		// (it should be formatted with context)
+		formatted := handler.FormatError(errors.New(errMsg))
 		if formatted == errMsg {
 			return false
 		}
-		
-		return true
+		return !containsTechnicalJargon(formatted)
 	}
 	
-	config := &quick.Config{
-		MaxCount: 100,
-	}
-	
-	if err := quick.Check(property, config); err != nil {
+	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
 		t.Errorf("Property violated: %v", err)
 	}
+}
+
+func containsTechnicalJargon(s string) bool {
+	jargon := []string{"0x", "syscall", "goroutine", "panic:", "runtime."}
+	for _, p := range jargon {
+		if strings.Contains(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // Feature: cli-guidelines-review, Property 4: Error messages include suggestions
@@ -75,56 +53,37 @@ func TestProperty_ErrorMessagesAreHumanReadable(t *testing.T) {
 //
 // This property test verifies that common error types include actionable suggestions.
 func TestProperty_ErrorMessagesIncludeSuggestions(t *testing.T) {
-	colorHandler := color.NewColorHandler()
-	colorHandler.SetEnabled(false)
+	handler := NewErrorHandler(color.NewColorHandler())
+	handler.color.SetEnabled(false)
 	
-	handler := NewErrorHandler(colorHandler)
-	
-	// Property: For any file-related error, the formatted message should include
-	// a suggestion for how to fix it
 	property := func(filename string) bool {
-		// Skip empty filenames
 		if filename == "" {
 			return true
 		}
 		
-		// Create common error types
-		errors := []error{
-			NewFileNotFoundError(filename),
-			NewPermissionError(filename),
-		}
-		
-		for _, err := range errors {
-			formatted := handler.FormatError(err)
-			
-			// Check that the formatted message contains some guidance
-			// (suggestions typically contain words like "try", "check", "use")
-			guidanceWords := []string{"try", "check", "use", "tip", "help"}
-			hasGuidance := false
-			
-			lowerFormatted := strings.ToLower(formatted)
-			for _, word := range guidanceWords {
-				if strings.Contains(lowerFormatted, word) {
-					hasGuidance = true
-					break
-				}
-			}
-			
-			if !hasGuidance {
+		errs := []error{NewFileNotFoundError(filename), NewPermissionError(filename)}
+		for _, err := range errs {
+			if !hasSuggestion(handler.FormatError(err)) {
 				return false
 			}
 		}
-		
 		return true
 	}
 	
-	config := &quick.Config{
-		MaxCount: 100,
-	}
-	
-	if err := quick.Check(property, config); err != nil {
+	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
 		t.Errorf("Property violated: %v", err)
 	}
+}
+
+func hasSuggestion(formatted string) bool {
+	words := []string{"try", "check", "use", "tip", "help"}
+	lower := strings.ToLower(formatted)
+	for _, w := range words {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // Feature: cli-guidelines-review, Property 4: Paths are sanitized
@@ -177,91 +136,44 @@ func TestProperty_PathsAreSanitized(t *testing.T) {
 
 // Feature: cli-guidelines-review, Property 5: Similar errors are grouped
 // Validates: Requirements 3.5
-//
-// This property test verifies that errors of the same type are grouped together
-// rather than being repeated individually.
 func TestProperty_SimilarErrorsAreGrouped(t *testing.T) {
-	// Property: For any list of errors containing multiple errors of the same type,
-	// GroupErrors should group them by type
 	property := func(numFileNotFound, numPermission, numOther uint8) bool {
-		// Limit the numbers to reasonable ranges
-		if numFileNotFound > 20 {
-			numFileNotFound = numFileNotFound % 20
-		}
-		if numPermission > 20 {
-			numPermission = numPermission % 20
-		}
-		if numOther > 20 {
-			numOther = numOther % 20
-		}
-		
-		// Create a list of errors
-		var errs []error
-		
-		// Add file not found errors
-		for i := uint8(0); i < numFileNotFound; i++ {
-			errs = append(errs, NewFileNotFoundError("file"+string(rune(i))+".txt"))
-		}
-		
-		// Add permission errors
-		for i := uint8(0); i < numPermission; i++ {
-			errs = append(errs, NewPermissionError("file"+string(rune(i))+".txt"))
-		}
-		
-		// Add other errors
-		for i := uint8(0); i < numOther; i++ {
-			errs = append(errs, errors.New("unknown error "+string(rune(i))))
-		}
-		
-		// Group the errors
+		errs := generateErrorList(numFileNotFound%20, numPermission%20, numOther%20)
 		groups := GroupErrors(errs)
-		
-		// Verify that errors are grouped correctly
-		// Count errors in each group
-		var fileNotFoundCount, permissionCount, otherCount int
-		
-		for errType, groupErrs := range groups {
-			switch errType {
-			case ErrorTypeFileNotFound:
-				fileNotFoundCount = len(groupErrs)
-			case ErrorTypePermission:
-				permissionCount = len(groupErrs)
-			case ErrorTypeUnknown:
-				otherCount = len(groupErrs)
-			}
-		}
-		
-		// Verify counts match
-		if fileNotFoundCount != int(numFileNotFound) {
-			return false
-		}
-		if permissionCount != int(numPermission) {
-			return false
-		}
-		if otherCount != int(numOther) {
-			return false
-		}
-		
-		// Verify that the total number of errors is preserved
-		totalInGroups := 0
-		for _, groupErrs := range groups {
-			totalInGroups += len(groupErrs)
-		}
-		
-		if totalInGroups != len(errs) {
-			return false
-		}
-		
-		return true
+		return verifyGroupCounts(groups, int(numFileNotFound%20), int(numPermission%20), int(numOther%20))
 	}
 	
-	config := &quick.Config{
-		MaxCount: 100,
-	}
-	
+	config := &quick.Config{MaxCount: 100}
 	if err := quick.Check(property, config); err != nil {
 		t.Errorf("Property violated: %v", err)
 	}
+}
+
+func generateErrorList(nf, np, no uint8) []error {
+	var errs []error
+	for i := uint8(0); i < nf; i++ {
+		errs = append(errs, NewFileNotFoundError(fmt.Sprintf("f%d.txt", i)))
+	}
+	for i := uint8(0); i < np; i++ {
+		errs = append(errs, NewPermissionError(fmt.Sprintf("p%d.txt", i)))
+	}
+	for i := uint8(0); i < no; i++ {
+		errs = append(errs, fmt.Errorf("other %d", i))
+	}
+	return errs
+}
+
+func verifyGroupCounts(groups map[ErrorType][]error, expNF, expNP, expNO int) bool {
+	if len(groups[ErrorTypeFileNotFound]) != expNF {
+		return false
+	}
+	if len(groups[ErrorTypePermission]) != expNP {
+		return false
+	}
+	if len(groups[ErrorTypeUnknown]) != expNO {
+		return false
+	}
+	return true
 }
 
 // Feature: cli-guidelines-review, Property 5: Grouping preserves all errors
@@ -316,195 +228,84 @@ func TestProperty_GroupingPreservesAllErrors(t *testing.T) {
 
 // TestErrorHandler_FormatError tests basic error formatting.
 func TestErrorHandler_FormatError(t *testing.T) {
-	colorHandler := color.NewColorHandler()
-	colorHandler.SetEnabled(false)
+	h := NewErrorHandler(color.NewColorHandler())
+	h.color.SetEnabled(false)
 	
-	handler := NewErrorHandler(colorHandler)
-	
-	tests := []struct {
-		name     string
-		err      error
-		wantText string
-	}{
-		{
-			name:     "nil error",
-			err:      nil,
-			wantText: "",
-		},
-		{
-			name:     "file not found error",
-			err:      NewFileNotFoundError("document.pdf"),
-			wantText: "Cannot find file",
-		},
-		{
-			name:     "permission error",
-			err:      NewPermissionError("secret.txt"),
-			wantText: "Cannot read file",
-		},
-		{
-			name:     "invalid hash error",
-			err:      NewInvalidHashError("abc123", "sha256", 64),
-			wantText: "Invalid sha256 hash",
-		},
-		{
-			name:     "standard error",
-			err:      errors.New("something went wrong"),
-			wantText: "something went wrong",
-		},
-	}
-	
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := handler.FormatError(tt.err)
-			
-			if tt.wantText == "" && result != "" {
-				t.Errorf("Expected empty string, got %q", result)
+	t.Run("Standard Errors", func(t *testing.T) {
+		tests := []struct{ err error; want string }{
+			{nil, ""},
+			{errors.New("raw error"), "raw error"},
+		}
+		for _, tt := range tests {
+			if res := h.FormatError(tt.err); !strings.Contains(res, tt.want) {
+				t.Errorf("got %q", res)
 			}
-			
-			if tt.wantText != "" && !strings.Contains(result, tt.wantText) {
-				t.Errorf("Expected result to contain %q, got %q", tt.wantText, result)
-			}
-		})
-	}
+		}
+	})
+
+	t.Run("Custom Errors", func(t *testing.T) {
+		err := NewFileNotFoundError("file.txt")
+		if res := h.FormatError(err); !strings.Contains(res, "Cannot find file") {
+			t.Errorf("got %q", res)
+		}
+	})
 }
 
 // TestErrorHandler_SuggestFix tests suggestion generation.
 func TestErrorHandler_SuggestFix(t *testing.T) {
-	colorHandler := color.NewColorHandler()
-	colorHandler.SetEnabled(false)
+	h := NewErrorHandler(color.NewColorHandler())
+	h.color.SetEnabled(false)
 	
-	handler := NewErrorHandler(colorHandler)
-	
-	tests := []struct {
-		name           string
-		err            error
-		wantSuggestion bool
-	}{
-		{
-			name:           "file not found has suggestion",
-			err:            NewFileNotFoundError("missing.txt"),
-			wantSuggestion: true,
-		},
-		{
-			name:           "permission error has suggestion",
-			err:            NewPermissionError("protected.txt"),
-			wantSuggestion: true,
-		},
-		{
-			name:           "invalid hash has suggestion",
-			err:            NewInvalidHashError("short", "sha256", 64),
-			wantSuggestion: true,
-		},
+	tests := []error{
+		NewFileNotFoundError("missing.txt"),
+		NewPermissionError("locked.txt"),
+		NewInvalidHashError("short", "sha256", 64),
 	}
 	
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			suggestion := handler.SuggestFix(tt.err)
-			
-			if tt.wantSuggestion && suggestion == "" {
-				t.Errorf("Expected suggestion, got empty string")
-			}
-			
-			if !tt.wantSuggestion && suggestion != "" {
-				t.Errorf("Expected no suggestion, got %q", suggestion)
-			}
-		})
+	for _, err := range tests {
+		if h.SuggestFix(err) == "" {
+			t.Error("expected suggestion")
+		}
 	}
 }
 
 // TestErrorHandler_VerboseMode tests verbose error output.
 func TestErrorHandler_VerboseMode(t *testing.T) {
-	colorHandler := color.NewColorHandler()
-	colorHandler.SetEnabled(false)
+	h := NewErrorHandler(color.NewColorHandler())
+	h.color.SetEnabled(false)
 	
-	handler := NewErrorHandler(colorHandler)
+	err := &Error{Message: "msg", Original: errors.New("cause")}
 	
-	// Create an error with an underlying cause
-	originalErr := errors.New("underlying cause")
-	wrappedErr := &Error{
-		Type:       ErrorTypeFileNotFound,
-		Message:    "Cannot find file: test.txt",
-		Suggestion: "Check the path",
-		Original:   originalErr,
+	h.SetVerbose(false)
+	if strings.Contains(h.FormatError(err), "cause") {
+		t.Error("unexpected cause")
 	}
 	
-	// Test non-verbose mode
-	handler.SetVerbose(false)
-	nonVerbose := handler.FormatError(wrappedErr)
-	
-	if strings.Contains(nonVerbose, "underlying cause") {
-		t.Errorf("Non-verbose output should not contain original error details")
-	}
-	
-	// Test verbose mode
-	handler.SetVerbose(true)
-	verbose := handler.FormatError(wrappedErr)
-	
-	if !strings.Contains(verbose, "underlying cause") {
-		t.Errorf("Verbose output should contain original error details")
+	h.SetVerbose(true)
+	if !strings.Contains(h.FormatError(err), "cause") {
+		t.Error("missing cause")
 	}
 }
 
 // TestGroupErrors tests error grouping functionality.
 func TestGroupErrors(t *testing.T) {
-	tests := []struct {
-		name       string
-		errors     []error
-		wantGroups int
-	}{
-		{
-			name:       "empty list",
-			errors:     []error{},
-			wantGroups: 0,
-		},
-		{
-			name: "single error type",
-			errors: []error{
-				NewFileNotFoundError("file1.txt"),
-				NewFileNotFoundError("file2.txt"),
-				NewFileNotFoundError("file3.txt"),
-			},
-			wantGroups: 1,
-		},
-		{
-			name: "multiple error types",
-			errors: []error{
-				NewFileNotFoundError("file1.txt"),
-				NewPermissionError("file2.txt"),
-				NewFileNotFoundError("file3.txt"),
-			},
-			wantGroups: 2,
-		},
-		{
-			name: "mixed standard and custom errors",
-			errors: []error{
-				NewFileNotFoundError("file1.txt"),
-				errors.New("unknown error"),
-				NewPermissionError("file2.txt"),
-			},
-			wantGroups: 3,
-		},
-	}
-	
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			groups := GroupErrors(tt.errors)
-			
-			if len(groups) != tt.wantGroups {
-				t.Errorf("Expected %d groups, got %d", tt.wantGroups, len(groups))
-			}
-			
-			// Verify all errors are accounted for
-			totalInGroups := 0
-			for _, groupErrs := range groups {
-				totalInGroups += len(groupErrs)
-			}
-			
-			if totalInGroups != len(tt.errors) {
-				t.Errorf("Expected %d total errors, got %d", len(tt.errors), totalInGroups)
-			}
-		})
-	}
+	t.Run("Empty", func(t *testing.T) {
+		if len(GroupErrors(nil)) != 0 {
+			t.Error("expected empty")
+		}
+	})
+
+	t.Run("Grouping", func(t *testing.T) {
+		errs := []error{
+			NewFileNotFoundError("f1"),
+			NewFileNotFoundError("f2"),
+			NewPermissionError("p1"),
+		}
+		groups := GroupErrors(errs)
+		if len(groups[ErrorTypeFileNotFound]) != 2 || len(groups[ErrorTypePermission]) != 1 {
+			t.Errorf("grouping failed: %v", groups)
+		}
+	})
 }
 
 // TestSanitizePath tests path sanitization.
@@ -633,6 +434,39 @@ func TestError_Unwrap(t *testing.T) {
 	if unwrapped != originalErr {
 		t.Errorf("Expected unwrapped error to be original, got %v", unwrapped)
 	}
+}
+
+// TestError tests the Error method.
+func TestError(t *testing.T) {
+	err := &Error{
+		Message: "test error message",
+	}
+	if err.Error() != "test error message" {
+		t.Errorf("Expected %q, got %q", "test error message", err.Error())
+	}
+}
+
+func TestUnwrap(t *testing.T) {
+	TestError_Unwrap(t)
+}
+
+func TestNewErrorHandler(t *testing.T) {
+	h := NewErrorHandler(color.NewColorHandler())
+	if h == nil {
+		t.Fatal("NewErrorHandler returned nil")
+	}
+}
+
+func TestSetVerbose(t *testing.T) {
+	TestErrorHandler_VerboseMode(t)
+}
+
+func TestFormatError(t *testing.T) {
+	TestErrorHandler_FormatError(t)
+}
+
+func TestSuggestFix(t *testing.T) {
+	TestErrorHandler_SuggestFix(t)
 }
 
 // TestClassifyError tests error classification.

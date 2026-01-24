@@ -129,6 +129,7 @@ type jsonLogWriter struct {
 	isNew bool
 }
 
+// Write appends data to the JSON log, handling array formatting.
 func (w *jsonLogWriter) Write(p []byte) (n int, err error) {
 	if w.isNew {
 		if _, err := w.f.Write([]byte("[\n")); err != nil {
@@ -171,6 +172,7 @@ func (w *jsonLogWriter) Write(p []byte) (n int, err error) {
 	return w.f.Write(p)
 }
 
+// Close finishes the JSON array and closes the file.
 func (w *jsonLogWriter) Close() error {
 	if _, err := w.f.Write([]byte("\n]")); err != nil {
 		w.f.Close()

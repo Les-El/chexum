@@ -21,14 +21,12 @@ type DiscoveryOptions struct {
 }
 
 // DiscoverFiles finds all files in the given paths based on options.
-// If paths is empty, it uses the current directory.
 func DiscoverFiles(paths []string, opts DiscoveryOptions) ([]string, error) {
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}
 
 	var discovered []string
-
 	for _, root := range paths {
 		if root == "-" {
 			discovered = append(discovered, root)
@@ -39,81 +37,79 @@ func DiscoverFiles(paths []string, opts DiscoveryOptions) ([]string, error) {
 			if err != nil {
 				return err
 			}
-
-			// Skip the root if it's a directory we're walking
-			if path == root && info.IsDir() && path != "." {
-				// But we still want to enter it
-				return nil
-			}
-
-			// 1. Handle hidden files
-			if !opts.Hidden && isHidden(path, root) {
-				if info.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-
-			// 2. Handle directories
-			if info.IsDir() {
-				if path != root && !opts.Recursive {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-
-			// 3. Apply filters
-			
-			// Size filters
-			if opts.MinSize > 0 && info.Size() < opts.MinSize {
-				return nil
-			}
-			if opts.MaxSize != -1 && info.Size() > opts.MaxSize {
-				return nil
-			}
-
-			// Date filters
-			if !opts.ModifiedAfter.IsZero() && info.ModTime().Before(opts.ModifiedAfter) {
-				return nil
-			}
-			if !opts.ModifiedBefore.IsZero() && info.ModTime().After(opts.ModifiedBefore) {
-				return nil
-			}
-
-			// Name/Glob filters
-			name := filepath.Base(path)
-			
-			// Exclude patterns (checked first)
-			for _, pattern := range opts.Exclude {
-				if matched, _ := filepath.Match(pattern, name); matched {
-					return nil
-				}
-			}
-
-			// Include patterns
-			if len(opts.Include) > 0 {
-				anyMatch := false
-				for _, pattern := range opts.Include {
-					if matched, _ := filepath.Match(pattern, name); matched {
-						anyMatch = true
-						break
-					}
-				}
-				if !anyMatch {
-					return nil
-				}
-			}
-			
-			discovered = append(discovered, path)
-			return nil
+			return handlePath(path, root, info, opts, &discovered)
 		})
-
 		if err != nil {
 			return nil, err
 		}
 	}
-
 	return discovered, nil
+}
+
+func handlePath(path, root string, info os.FileInfo, opts DiscoveryOptions, discovered *[]string) error {
+	if path == root && info.IsDir() && path != "." {
+		return nil
+	}
+
+	// 1. Handle hidden and directory traversal
+	if !opts.Hidden && isHidden(path, root) {
+		if info.IsDir() {
+			return filepath.SkipDir
+		}
+		return nil
+	}
+
+	if info.IsDir() {
+		if path != root && !opts.Recursive {
+			return filepath.SkipDir
+		}
+		return nil
+	}
+
+	// 2. Apply filters
+	if !passesFilters(info, path, opts) {
+		return nil
+	}
+
+	*discovered = append(*discovered, path)
+	return nil
+}
+
+func passesFilters(info os.FileInfo, path string, opts DiscoveryOptions) bool {
+	// Size filters
+	if opts.MinSize > 0 && info.Size() < opts.MinSize {
+		return false
+	}
+	if opts.MaxSize != -1 && info.Size() > opts.MaxSize {
+		return false
+	}
+
+	// Date filters
+	if !opts.ModifiedAfter.IsZero() && info.ModTime().Before(opts.ModifiedAfter) {
+		return false
+	}
+	if !opts.ModifiedBefore.IsZero() && info.ModTime().After(opts.ModifiedBefore) {
+		return false
+	}
+
+	// Name filters
+	name := filepath.Base(path)
+	for _, pattern := range opts.Exclude {
+		if matched, _ := filepath.Match(pattern, name); matched {
+			return false
+		}
+	}
+
+	if len(opts.Include) > 0 {
+		for _, pattern := range opts.Include {
+			if matched, _ := filepath.Match(pattern, name); matched {
+				return true
+			}
+		}
+		return false
+	}
+
+	return true
 }
 
 // isHidden checks if a file or directory is hidden.

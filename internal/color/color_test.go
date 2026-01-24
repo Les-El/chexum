@@ -8,77 +8,41 @@ import (
 	"testing/quick"
 )
 
-// TestProperty_ColorOutputRespectsTTYDetection verifies Property 2:
-// For any output destination, when output is sent to a non-TTY or NO_COLOR is set,
-// the output should contain no ANSI color codes.
-//
-// Feature: cli-guidelines-review, Property 2: Color output respects TTY detection
-// Validates: Requirements 2.2, 2.3
 func TestProperty_ColorOutputRespectsTTYDetection(t *testing.T) {
-	// Property: When colors are disabled (non-TTY or NO_COLOR set),
-	// colorized text should not contain ANSI escape codes
 	property := func(text string) bool {
-		// Create a handler with colors disabled
-		h := &Handler{
-			enabled: false,
-			isTTY:   false,
-		}
+		h := &Handler{enabled: false, isTTY: false}
 		h.setupColors()
 
-		// Test all color methods
-		colors := []Color{
-			ColorGreen,
-			ColorRed,
-			ColorYellow,
-			ColorBlue,
-			ColorCyan,
-			ColorGray,
-		}
-
-		for _, c := range colors {
-			result := h.Colorize(text, c)
-			
-			// When colors are disabled, output should equal input (no ANSI codes)
-			if result != text {
-				return false
-			}
-			
-			// Verify no ANSI escape sequences are present
-			if containsANSI(result) {
-				return false
-			}
-		}
-
-		// Test convenience methods
-		if h.Green(text) != text || containsANSI(h.Green(text)) {
+		if !verifyAllColors(h, text) {
 			return false
 		}
-		if h.Red(text) != text || containsANSI(h.Red(text)) {
-			return false
-		}
-		if h.Yellow(text) != text || containsANSI(h.Yellow(text)) {
-			return false
-		}
-		if h.Blue(text) != text || containsANSI(h.Blue(text)) {
-			return false
-		}
-		if h.Cyan(text) != text || containsANSI(h.Cyan(text)) {
-			return false
-		}
-		if h.Gray(text) != text || containsANSI(h.Gray(text)) {
-			return false
-		}
-
-		return true
+		return verifyConvenienceMethods(h, text)
 	}
 
-	config := &quick.Config{
-		MaxCount: 100, // Run 100 iterations as per spec requirements
-	}
-
-	if err := quick.Check(property, config); err != nil {
+	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
 		t.Errorf("Property violated: %v", err)
 	}
+}
+
+func verifyAllColors(h *Handler, text string) bool {
+	colors := []Color{ColorGreen, ColorRed, ColorYellow, ColorBlue, ColorCyan, ColorGray}
+	for _, c := range colors {
+		result := h.Colorize(text, c)
+		if result != text || containsANSI(result) {
+			return false
+		}
+	}
+	return true
+}
+
+func verifyConvenienceMethods(h *Handler, text string) bool {
+	methods := []func(string) string{h.Green, h.Red, h.Yellow, h.Blue, h.Cyan, h.Gray}
+	for _, m := range methods {
+		if m(text) != text || containsANSI(m(text)) {
+			return false
+		}
+	}
+	return true
 }
 
 // TestProperty_ColorOutputWithNO_COLOR verifies that NO_COLOR environment variable
@@ -138,62 +102,38 @@ func containsANSI(s string) bool {
 
 // Unit Tests
 
-// TestColorHandler_TTYDetection tests TTY detection logic.
 func TestColorHandler_TTYDetection(t *testing.T) {
 	tests := []struct {
-		name      string
-		setupEnv  func()
-		wantTTY   bool
-		wantColor bool
+		name     string
+		setupEnv func()
 	}{
-		{
-			name: "NO_COLOR set disables colors",
-			setupEnv: func() {
-				os.Setenv("NO_COLOR", "1")
-			},
-			wantColor: false,
-		},
-		{
-			name: "NO_COLOR empty string still disables colors",
-			setupEnv: func() {
-				os.Setenv("NO_COLOR", "")
-			},
-			wantColor: false,
-		},
-		{
-			name: "NO_COLOR unset allows colors on TTY",
-			setupEnv: func() {
-				os.Unsetenv("NO_COLOR")
-			},
-			// Note: wantColor depends on actual TTY status, tested separately
-		},
+		{"NO_COLOR set", func() { os.Setenv("NO_COLOR", "1") }},
+		{"NO_COLOR empty", func() { os.Setenv("NO_COLOR", "") }},
+		{"NO_COLOR unset", func() { os.Unsetenv("NO_COLOR") }},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save original state
-			originalValue, hadNoColor := os.LookupEnv("NO_COLOR")
-			defer func() {
-				if hadNoColor {
-					os.Setenv("NO_COLOR", originalValue)
-				} else {
-					os.Unsetenv("NO_COLOR")
-				}
-			}()
+			orig, had := os.LookupEnv("NO_COLOR")
+			defer restoreEnv("NO_COLOR", orig, had)
 
-			// Setup environment
 			tt.setupEnv()
-
-			// Create handler
 			h := NewColorHandler()
 
-			// When NO_COLOR is set, colors should be disabled
-			if strings.Contains(tt.name, "NO_COLOR set") || strings.Contains(tt.name, "empty string") {
+			if strings.Contains(tt.name, "NO_COLOR") && !strings.Contains(tt.name, "unset") {
 				if h.IsEnabled() {
-					t.Errorf("Expected colors to be disabled when NO_COLOR is set, but they were enabled")
+					t.Errorf("Expected colors disabled for %s", tt.name)
 				}
 			}
 		})
+	}
+}
+
+func restoreEnv(key, val string, had bool) {
+	if had {
+		os.Setenv(key, val)
+	} else {
+		os.Unsetenv(key)
 	}
 }
 
@@ -432,5 +372,123 @@ func TestColorHandler_IsTTY(t *testing.T) {
 	isTTY := h.IsTTY()
 	if isTTY != true && isTTY != false {
 		t.Error("IsTTY should return a boolean value")
+	}
+}
+
+func TestNewColorHandler(t *testing.T) {
+	h := NewColorHandler()
+	if h == nil {
+		t.Fatal("NewColorHandler returned nil")
+	}
+}
+
+func TestIsEnabled(t *testing.T) {
+	h := NewColorHandler()
+	_ = h.IsEnabled()
+}
+
+func TestIsTTY(t *testing.T) {
+	h := NewColorHandler()
+	_ = h.IsTTY()
+}
+
+func TestSetEnabled(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(true)
+	if !h.IsEnabled() {
+		t.Error("Expected enabled")
+	}
+	h.SetEnabled(false)
+	if h.IsEnabled() {
+		t.Error("Expected disabled")
+	}
+}
+
+func TestColorize(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	text := "test"
+	if h.Colorize(text, ColorGreen) != text {
+		t.Error("Expected plain text when disabled")
+	}
+}
+
+func TestGreen(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	if h.Green("test") != "test" {
+		t.Error("Expected plain text")
+	}
+}
+
+func TestRed(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	if h.Red("test") != "test" {
+		t.Error("Expected plain text")
+	}
+}
+
+func TestYellow(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	if h.Yellow("test") != "test" {
+		t.Error("Expected plain text")
+	}
+}
+
+func TestBlue(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	if h.Blue("test") != "test" {
+		t.Error("Expected plain text")
+	}
+}
+
+func TestCyan(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	if h.Cyan("test") != "test" {
+		t.Error("Expected plain text")
+	}
+}
+
+func TestGray(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	if h.Gray("test") != "test" {
+		t.Error("Expected plain text")
+	}
+}
+
+func TestSuccess(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	if !strings.Contains(h.Success("msg"), "msg") {
+		t.Error("Missing message")
+	}
+}
+
+func TestError(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	if !strings.Contains(h.Error("msg"), "msg") {
+		t.Error("Missing message")
+	}
+}
+
+func TestWarning(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	if !strings.Contains(h.Warning("msg"), "msg") {
+		t.Error("Missing message")
+	}
+}
+
+func TestInfo(t *testing.T) {
+	h := NewColorHandler()
+	h.SetEnabled(false)
+	if !strings.Contains(h.Info("msg"), "msg") {
+		t.Error("Missing message")
 	}
 }

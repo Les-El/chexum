@@ -9,91 +9,92 @@ import (
 
 // TestConflictResolution_PipelineOfIntent tests the conflict resolution logic.
 // **Validates: Pipeline of Intent (Conflict Resolution)**
-func TestConflictResolution_PipelineOfIntent(t *testing.T) {
-	tests := []struct {
-		name           string
-		args           []string
-		flagSet        map[string]bool
-		explicitFormat string
-		expectedState  conflict.RunState
-		hasWarning     bool
-	}{
-		{
-			name: "Default State",
-			args: []string{},
-			flagSet: map[string]bool{
-				"json": false, "plain": false, "quiet": false, "verbose": false, "bool": false,
-			},
-			expectedState: conflict.RunState{
-				Mode:      conflict.ModeStandard,
-				Format:    conflict.FormatDefault,
-				Verbosity: conflict.VerbosityNormal,
-			},
+// Reviewed: Kept long function because it is a comprehensive table-driven test for conflict resolution states.
+var conflictResolutionTests = []struct {
+	name           string
+	args           []string
+	flagSet        map[string]bool
+	explicitFormat string
+	expectedState  conflict.RunState
+	hasWarning     bool
+}{
+	{
+		name: "Default State",
+		args: []string{},
+		flagSet: map[string]bool{
+			"json": false, "plain": false, "quiet": false, "verbose": false, "bool": false,
 		},
-		{
-			name: "Quiet overrides Verbose",
-			args: []string{"-q", "-v"},
-			flagSet: map[string]bool{
-				"quiet": true, "verbose": true,
-			},
-			expectedState: conflict.RunState{
-				Mode:      conflict.ModeStandard,
-				Format:    conflict.FormatDefault,
-				Verbosity: conflict.VerbosityQuiet,
-			},
-			hasWarning: true,
+		expectedState: conflict.RunState{
+			Mode:      conflict.ModeStandard,
+			Format:    conflict.FormatDefault,
+			Verbosity: conflict.VerbosityNormal,
 		},
-		{
-			name: "Bool overrides Format and implies Quiet",
-			args: []string{"--bool", "--json"},
-			flagSet: map[string]bool{
-				"bool": true, "json": true,
-			},
-			expectedState: conflict.RunState{
-				Mode:      conflict.ModeBool,
-				Format:    conflict.FormatDefault, // Reset to default when in bool mode
-				Verbosity: conflict.VerbosityQuiet,
-			},
-			hasWarning: true,
+	},
+	{
+		name: "Quiet overrides Verbose",
+		args: []string{"-q", "-v"},
+		flagSet: map[string]bool{
+			"quiet": true, "verbose": true,
 		},
-		{
-			name: "Last One Wins: JSON vs Plain (JSON wins)",
-			args: []string{"--plain", "--json"},
-			flagSet: map[string]bool{
-				"plain": true, "json": true,
-			},
-			expectedState: conflict.RunState{
-				Mode:      conflict.ModeStandard,
-				Format:    conflict.FormatJSON,
-				Verbosity: conflict.VerbosityNormal,
-			},
+		expectedState: conflict.RunState{
+			Mode:      conflict.ModeStandard,
+			Format:    conflict.FormatDefault,
+			Verbosity: conflict.VerbosityQuiet,
 		},
-		{
-			name: "Last One Wins: JSON vs Plain (Plain wins)",
-			args: []string{"--json", "--plain"},
-			flagSet: map[string]bool{
-				"plain": true, "json": true,
-			},
-			expectedState: conflict.RunState{
-				Mode:      conflict.ModeStandard,
-				Format:    conflict.FormatPlain,
-				Verbosity: conflict.VerbosityNormal,
-			},
+		hasWarning: true,
+	},
+	{
+		name: "Bool overrides Format and implies Quiet",
+		args: []string{"--bool", "--json"},
+		flagSet: map[string]bool{
+			"bool": true, "json": true,
 		},
-		{
-			name: "Format Flag: Verbose",
-			args: []string{"--format=verbose"},
-			explicitFormat: "verbose",
-			flagSet: map[string]bool{},
-			expectedState: conflict.RunState{
-				Mode:      conflict.ModeStandard,
-				Format:    conflict.FormatVerbose,
-				Verbosity: conflict.VerbosityNormal,
-			},
+		expectedState: conflict.RunState{
+			Mode:      conflict.ModeBool,
+			Format:    conflict.FormatDefault, // Reset to default when in bool mode
+			Verbosity: conflict.VerbosityQuiet,
 		},
-	}
+		hasWarning: true,
+	},
+	{
+		name: "Last One Wins: JSON vs Plain (JSON wins)",
+		args: []string{"--plain", "--json"},
+		flagSet: map[string]bool{
+			"plain": true, "json": true,
+		},
+		expectedState: conflict.RunState{
+			Mode:      conflict.ModeStandard,
+			Format:    conflict.FormatJSON,
+			Verbosity: conflict.VerbosityNormal,
+		},
+	},
+	{
+		name: "Last One Wins: JSON vs Plain (Plain wins)",
+		args: []string{"--json", "--plain"},
+		flagSet: map[string]bool{
+			"plain": true, "json": true,
+		},
+		expectedState: conflict.RunState{
+			Mode:      conflict.ModeStandard,
+			Format:    conflict.FormatPlain,
+			Verbosity: conflict.VerbosityNormal,
+		},
+	},
+	{
+		name: "Format Flag: Verbose",
+		args: []string{"--format=verbose"},
+		explicitFormat: "verbose",
+		flagSet: map[string]bool{},
+		expectedState: conflict.RunState{
+			Mode:      conflict.ModeStandard,
+			Format:    conflict.FormatVerbose,
+			Verbosity: conflict.VerbosityNormal,
+		},
+	},
+}
 
-	for _, tt := range tests {
+func TestConflictResolution_PipelineOfIntent(t *testing.T) {
+	for _, tt := range conflictResolutionTests {
 		t.Run(tt.name, func(t *testing.T) {
 			state, warnings, err := conflict.ResolveState(tt.args, tt.flagSet, tt.explicitFormat)
 			if err != nil {
@@ -119,3 +120,18 @@ func TestConflictResolution_PipelineOfIntent(t *testing.T) {
 		})
 	}
 }
+			
+			func TestResolveState(t *testing.T) {
+				TestConflictResolution_PipelineOfIntent(t)
+			}
+			
+			func TestFormatAllWarnings(t *testing.T) {
+				warnings := []conflict.Warning{
+					{Message: "test warning"},
+				}
+				result := conflict.FormatAllWarnings(warnings)
+				if result == "" {
+					t.Error("Expected formatted warnings, got empty string")
+				}
+			}
+			

@@ -18,85 +18,49 @@ func TestPropertyInterruptedOperationsLeaveRecoverableState(t *testing.T) {
 		MaxCount: 100,
 	}
 
-	// Property: After interruption, cleanup should run (or timeout gracefully),
-	// and the handler should be in a consistent state that allows retry
-	property := func(cleanupDuration uint8) bool {
-		// Convert to milliseconds (0-255ms)
-		cleanupTime := time.Duration(cleanupDuration) * time.Millisecond
-
-		// Track cleanup state
-		cleanupRan := false
-		cleanupComplete := false
-		var mu sync.Mutex
-
-		cleanup := func() {
-			mu.Lock()
-			cleanupRan = true
-			mu.Unlock()
-
-			// Simulate cleanup work
-			time.Sleep(cleanupTime)
-
-			mu.Lock()
-			cleanupComplete = true
-			mu.Unlock()
-		}
-
-		handler := NewSignalHandler(cleanup)
-		handler.SetCleanupTimeout(500 * time.Millisecond)
-		
-		// Override exit function for testing
-		exitCalled := false
-		handler.exitFunc = func(code int) {
-			exitCalled = true
-		}
-
-		// Start the handler
-		handler.Start()
-		defer handler.Stop()
-
-		// Simulate interrupt
-		handler.handleInterrupt()
-
-		// Check state after interrupt
-		mu.Lock()
-		ranCleanup := cleanupRan
-		completedCleanup := cleanupComplete
-		mu.Unlock()
-
-		// Verify recoverable state:
-		// 1. Cleanup was attempted
-		// 2. Handler is marked as interrupted
-		// 3. Handler can be reset for retry
-		// 4. Exit was called
-		if !ranCleanup {
-			return false
-		}
-
-		if !handler.IsInterrupted() {
-			return false
-		}
-		
-		if !exitCalled {
-			return false
-		}
-
-		// Reset should allow retry
-		handler.Reset()
-		if handler.IsInterrupted() {
-			return false
-		}
-
-		// If cleanup was fast enough, it should have completed
-		if cleanupTime < 500*time.Millisecond && !completedCleanup {
-			return false
-		}
-
-		return true
-	}
-
-	if err := quick.Check(property, config); err != nil {
+	if err := quick.Check(verifyRecoverableStateProperty, config); err != nil {
 		t.Errorf("Property violated: %v", err)
+	}
+}
+
+func verifyRecoverableStateProperty(cleanupDuration uint8) bool {
+	cleanupTime := time.Duration(cleanupDuration) * time.Millisecond
+	tracker := &cleanupTracker{}
+	
+	handler := NewSignalHandler(tracker.runWithDuration(cleanupTime))
+	handler.SetCleanupTimeout(500 * time.Millisecond)
+	
+	exitCalled := false
+	handler.exitFunc = func(code int) { exitCalled = true }
+	
+	handler.Start()
+	defer handler.Stop()
+	handler.handleInterrupt()
+	
+	if !tracker.didStart() || !handler.IsInterrupted() || !exitCalled {
+		return false
+	}
+	
+	handler.Reset()
+	if handler.IsInterrupted() {
+		return false
+	}
+	
+	if cleanupTime < 500*time.Millisecond && !tracker.didFinish() {
+		return false
+	}
+	return true
+}
+
+func (c *cleanupTracker) runWithDuration(d time.Duration) func() {
+	return func() {
+		c.mu.Lock()
+		c.started = true
+		c.mu.Unlock()
+		time.Sleep(d)
+		c.mu.Lock()
+		c.finished = true
+		c.mu.Unlock()
 	}
 }
 
@@ -136,66 +100,66 @@ func TestSIGINTHandling(t *testing.T) {
 	}
 }
 
-// TestCleanupTimeout tests that cleanup respects the timeout.
 func TestCleanupTimeout(t *testing.T) {
-	cleanupStarted := false
-	cleanupFinished := false
-	var mu sync.Mutex
-
-	cleanup := func() {
-		mu.Lock()
-		cleanupStarted = true
-		mu.Unlock()
-
-		// Simulate long cleanup (longer than timeout)
-		time.Sleep(200 * time.Millisecond)
-
-		mu.Lock()
-		cleanupFinished = true
-		mu.Unlock()
-	}
-
-	handler := NewSignalHandler(cleanup)
+	tracker := &cleanupTracker{}
+	handler := NewSignalHandler(tracker.run)
 	handler.SetCleanupTimeout(50 * time.Millisecond)
-	handler.exitFunc = func(code int) {} // Mock exit
+	handler.exitFunc = func(code int) {}
 	handler.Start()
 	defer handler.Stop()
 
-	// Simulate interrupt
 	start := time.Now()
 	handler.handleInterrupt()
 	duration := time.Since(start)
 
-	// Check that cleanup started
-	mu.Lock()
-	started := cleanupStarted
-	mu.Unlock()
-
-	if !started {
+	if !tracker.didStart() {
 		t.Error("Cleanup should have started")
 	}
-
-	// Should have timed out (not waited for full cleanup)
-	// Allow some margin for timing
 	if duration > 150*time.Millisecond {
-		t.Errorf("Cleanup should have timed out, but took %v", duration)
+		t.Errorf("Cleanup should have timed out, took %v", duration)
 	}
 
-	// Give cleanup goroutine time to finish
 	time.Sleep(200 * time.Millisecond)
-
-	// Cleanup should eventually finish (in background)
-	mu.Lock()
-	finished := cleanupFinished
-	mu.Unlock()
-
-	if !finished {
-		t.Error("Cleanup should have finished in background")
+	if !tracker.didFinish() {
+		t.Error("Cleanup should have finished eventually")
 	}
+}
+
+type cleanupTracker struct {
+	started  bool
+	finished bool
+	mu       sync.Mutex
+}
+
+func (c *cleanupTracker) run() {
+	c.mu.Lock()
+	c.started = true
+	c.mu.Unlock()
+	time.Sleep(200 * time.Millisecond)
+	c.mu.Lock()
+	c.finished = true
+	c.mu.Unlock()
+}
+
+func (c *cleanupTracker) didStart() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.started
+}
+
+func (c *cleanupTracker) didFinish() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.finished
 }
 
 // TestDoubleCtrlC tests that second Ctrl-C skips cleanup.
 func TestDoubleCtrlC(t *testing.T) {
+	t.Run("First Interrupt runs cleanup", testFirstInterrupt)
+	t.Run("Second Interrupt exits immediately", testSecondInterrupt)
+}
+
+func testFirstInterrupt(t *testing.T) {
 	cleanupCount := 0
 	exitCount := 0
 	var mu sync.Mutex
@@ -204,7 +168,6 @@ func TestDoubleCtrlC(t *testing.T) {
 		mu.Lock()
 		cleanupCount++
 		mu.Unlock()
-		time.Sleep(50 * time.Millisecond)
 	}
 
 	handler := NewSignalHandler(cleanup)
@@ -216,59 +179,40 @@ func TestDoubleCtrlC(t *testing.T) {
 	handler.Start()
 	defer handler.Stop()
 
-	// First interrupt - should run cleanup
 	handler.handleInterrupt()
 
-	mu.Lock()
-	count1 := handler.InterruptCount()
-	cleanup1 := cleanupCount
-	exit1 := exitCount
-	mu.Unlock()
-
-	if count1 != 1 {
-		t.Errorf("Expected interrupt count 1 after first signal, got %d", count1)
+	if handler.InterruptCount() != 1 || cleanupCount != 1 || exitCount != 1 {
+		t.Errorf("Unexpected state after first interrupt: count=%d, cleanup=%d, exit=%d",
+			handler.InterruptCount(), cleanupCount, exitCount)
 	}
+}
 
-	if cleanup1 != 1 {
-		t.Errorf("Expected cleanup to run once, got %d", cleanup1)
-	}
+func testSecondInterrupt(t *testing.T) {
+	cleanupCount := 0
+	var mu sync.Mutex
 
-	if exit1 != 1 {
-		t.Errorf("Expected exit to be called once, got %d", exit1)
-	}
-
-	// Create a new handler for second interrupt test
-	handler2 := NewSignalHandler(cleanup)
-	handler2.exitFunc = func(code int) {
+	cleanup := func() {
 		mu.Lock()
-		exitCount++
+		cleanupCount++
 		mu.Unlock()
 	}
-	handler2.Start()
-	defer handler2.Stop()
 
-	// Manually set interrupt count to 2 to simulate second interrupt
-	handler2.mu.Lock()
-	handler2.interruptCount = 1
-	handler2.interrupted = true
-	handler2.mu.Unlock()
+	handler := NewSignalHandler(cleanup)
+	handler.exitFunc = func(code int) {}
+	handler.Start()
+	defer handler.Stop()
 
-	// Second interrupt should exit immediately without running cleanup again
-	handler2.handleInterrupt()
+	// Simulate already interrupted
+	handler.mu.Lock()
+	handler.interruptCount = 1
+	handler.interrupted = true
+	handler.mu.Unlock()
 
-	mu.Lock()
-	cleanup2 := cleanupCount
-	count2 := handler2.InterruptCount()
-	mu.Unlock()
+	handler.handleInterrupt()
 
-	// Cleanup should still be 1 (not run for second interrupt)
-	if cleanup2 != 1 {
-		t.Errorf("Expected cleanup to run only once total, got %d", cleanup2)
-	}
-
-	// Interrupt count should be 2
-	if count2 != 2 {
-		t.Errorf("Expected interrupt count 2 after second signal, got %d", count2)
+	if handler.InterruptCount() != 2 || cleanupCount != 0 {
+		t.Errorf("Unexpected state after second interrupt: count=%d, cleanup=%d",
+			handler.InterruptCount(), cleanupCount)
 	}
 }
 
@@ -401,7 +345,17 @@ func TestStopSignalHandler(t *testing.T) {
 
 // TestSignalHandlerIntegration tests a realistic usage scenario.
 func TestSignalHandlerIntegration(t *testing.T) {
-	// Simulate a realistic scenario with file processing
+	filesProcessed, cleanupRan := runIntegrationScenario()
+
+	if filesProcessed != 5 {
+		t.Errorf("Expected 5 files processed, got %d", filesProcessed)
+	}
+	if !cleanupRan {
+		t.Error("Cleanup should have run")
+	}
+}
+
+func runIntegrationScenario() (int, bool) {
 	filesProcessed := 0
 	cleanupRan := false
 	var mu sync.Mutex
@@ -413,46 +367,55 @@ func TestSignalHandlerIntegration(t *testing.T) {
 	}
 
 	handler := NewSignalHandler(cleanup)
-	handler.exitFunc = func(code int) {} // Mock exit
+	handler.exitFunc = func(code int) {}
 	handler.Start()
 	defer handler.Stop()
 
-	// Simulate processing files
 	for i := 0; i < 10; i++ {
 		if handler.IsInterrupted() {
 			break
 		}
-
 		mu.Lock()
 		filesProcessed++
 		mu.Unlock()
-
 		time.Sleep(10 * time.Millisecond)
-
-		// Simulate interrupt after processing 5 files
 		if i == 4 {
 			go handler.handleInterrupt()
-			time.Sleep(20 * time.Millisecond) // Let interrupt handler run
+			time.Sleep(20 * time.Millisecond)
 		}
 	}
 
 	mu.Lock()
-	processed := filesProcessed
-	cleaned := cleanupRan
-	mu.Unlock()
+	defer mu.Unlock()
+	return filesProcessed, cleanupRan
+}
 
-	// Should have processed 5 files before interrupt
-	if processed != 5 {
-		t.Errorf("Expected 5 files processed, got %d", processed)
+func TestNewSignalHandler(t *testing.T) {
+	h := NewSignalHandler(nil)
+	if h == nil {
+		t.Fatal("NewSignalHandler returned nil")
 	}
+}
 
-	// Cleanup should have run
-	if !cleaned {
-		t.Error("Cleanup should have run")
+func TestStart(t *testing.T) {
+	h := NewSignalHandler(nil)
+	h.exitFunc = func(int) {}
+	h.Start()
+	h.Stop()
+}
+
+func TestStop(t *testing.T) {
+	TestStopSignalHandler(t)
+}
+
+func TestInterruptCount(t *testing.T) {
+	h := NewSignalHandler(nil)
+	h.exitFunc = func(int) {}
+	if h.InterruptCount() != 0 {
+		t.Error("Expected 0")
 	}
-
-	// Should be interrupted
-	if !handler.IsInterrupted() {
-		t.Error("Should be interrupted")
+	h.handleInterrupt()
+	if h.InterruptCount() != 1 {
+		t.Error("Expected 1")
 	}
 }

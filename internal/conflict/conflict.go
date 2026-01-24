@@ -60,48 +60,11 @@ type Warning struct {
 }
 
 // ResolveState processes raw arguments and detected flags to produce a consistent RunState.
-//
-// args: The raw command-line arguments (os.Args[1:]) to determine order.
-// flags: A map of boolean flags detected by the flag parser (e.g. {"json": true, "quiet": true}).
-// explicitFormat: The value of --format if set (empty if default).
 func ResolveState(args []string, flagSet map[string]bool, explicitFormat string) (*RunState, []Warning, error) {
 	warnings := make([]Warning, 0)
 	
 	// Phase 1: Intent Collection
-	// We scan args to establish the "timeline" of user intent.
-	// This allows "Last One Wins" logic.
-	
-	lastFormatIntent := ""
-	lastFormatPos := -1
-	
-	// Check if explicit format was provided via --format flag
-	if explicitFormat != "" && explicitFormat != "default" {
-		lastFormatIntent = explicitFormat
-		// We assign a low priority position effectively, but specific flags like --json
-		// usually override general --format if they come later.
-		// However, to simplify, we can treat --format as an intent that happened "somewhere".
-		// But --json and --plain are distinct flags.
-		// If user does `--format=json --plain`, `plain` should win.
-		// If user does `--plain --format=json`, `json` should win.
-		// We need to find the positions.
-	}
-
-	// Scan args for relevant flags
-	for i, arg := range args {
-		if arg == "--json" || arg == "--plain" {
-			lastFormatIntent = strings.TrimPrefix(arg, "--")
-			lastFormatPos = i
-		} else if strings.HasPrefix(arg, "--format=") {
-			lastFormatIntent = strings.TrimPrefix(arg, "--format=")
-			lastFormatPos = i
-		} else if strings.HasPrefix(arg, "-f=") {
-			lastFormatIntent = strings.TrimPrefix(arg, "-f=")
-			lastFormatPos = i
-		} else if arg == "-f" && i+1 < len(args) {
-			lastFormatIntent = args[i+1]
-			lastFormatPos = i
-		}
-	}
+	lastFormatIntent, lastFormatPos := collectFormatIntent(args, explicitFormat)
 
 	// Phase 2: State Construction
 	state := &RunState{
@@ -110,60 +73,94 @@ func ResolveState(args []string, flagSet map[string]bool, explicitFormat string)
 		Verbosity: VerbosityNormal,
 	}
 
-	// 2a. Determine Mode (Bool overrides everything)
-	isBool := flagSet["bool"]
-
-	if isBool {
+	// 2a. Determine Mode
+	if flagSet["bool"] {
 		state.Mode = ModeBool
-		state.Verbosity = VerbosityQuiet // Bool implies Quiet
+		state.Verbosity = VerbosityQuiet
 	}
 
-	// 2b. Determine Format (Last One Wins)
-	if lastFormatPos >= 0 || lastFormatIntent != "" {
-		formatIntent := lastFormatIntent
-		
-		// If in bool mode, only warn if an explicit format was requested
-		if state.Mode == ModeBool && formatIntent != "" && formatIntent != "default" {
-			warnings = append(warnings, Warning{Message: fmt.Sprintf("--bool overrides --%s", formatIntent)})
-			state.Format = FormatDefault
-		} else if state.Mode != ModeBool {
-			switch formatIntent {
-			case "json":
-				state.Format = FormatJSON
-			case "plain":
-				state.Format = FormatPlain
-			case "verbose":
-				state.Format = FormatVerbose
-			case "default":
-				state.Format = FormatDefault
-			default:
-				state.Format = Format(formatIntent)
-			}
-		}
+	// 2b. Determine Format
+	formatWarn := state.determineFormat(lastFormatIntent, lastFormatPos)
+	if formatWarn != "" {
+		warnings = append(warnings, Warning{Message: formatWarn})
 	}
 
-	// 2c. Determine Verbosity (Quiet overrides Verbose)
-	isQuiet := flagSet["quiet"]
-	isVerbose := flagSet["verbose"]
-	
-	if state.Mode != ModeBool {
-		if isQuiet {
-			state.Verbosity = VerbosityQuiet
-			if isVerbose {
-				warnings = append(warnings, Warning{Message: "--quiet overrides --verbose"})
-			}
-		} else if isVerbose {
-			state.Verbosity = VerbosityVerbose
-			// Promote default format to verbose if -v is used (Requirement 17.1)
-			if state.Format == FormatDefault {
-				state.Format = FormatVerbose
-			}
-		}
-	}
+	// 2c. Determine Verbosity
+	verbosityWarns := state.determineVerbosity(flagSet)
+	warnings = append(warnings, verbosityWarns...)
 
-	// Phase 3: Validation (Hard Errors)
-	
 	return state, warnings, nil
+}
+
+func collectFormatIntent(args []string, explicitFormat string) (string, int) {
+	intent := ""
+	pos := -1
+	if explicitFormat != "" && explicitFormat != "default" {
+		intent = explicitFormat
+	}
+
+	for i, arg := range args {
+		if arg == "--json" || arg == "--plain" {
+			intent = strings.TrimPrefix(arg, "--")
+			pos = i
+		} else if strings.HasPrefix(arg, "--format=") {
+			intent = strings.TrimPrefix(arg, "--format=")
+			pos = i
+		} else if strings.HasPrefix(arg, "-f=") {
+			intent = strings.TrimPrefix(arg, "-f=")
+			pos = i
+		} else if arg == "-f" && i+1 < len(args) {
+			intent = args[i+1]
+			pos = i
+		}
+	}
+	return intent, pos
+}
+
+func (s *RunState) determineFormat(intent string, pos int) string {
+	if pos < 0 && intent == "" {
+		return ""
+	}
+
+	if s.Mode == ModeBool && intent != "" && intent != "default" {
+		return fmt.Sprintf("--bool overrides --%s", intent)
+	}
+
+	if s.Mode != ModeBool {
+		switch intent {
+		case "json":
+			s.Format = FormatJSON
+		case "plain":
+			s.Format = FormatPlain
+		case "verbose":
+			s.Format = FormatVerbose
+		case "default":
+			s.Format = FormatDefault
+		default:
+			s.Format = Format(intent)
+		}
+	}
+	return ""
+}
+
+func (s *RunState) determineVerbosity(flagSet map[string]bool) []Warning {
+	var warns []Warning
+	if s.Mode == ModeBool {
+		return nil
+	}
+
+	if flagSet["quiet"] {
+		s.Verbosity = VerbosityQuiet
+		if flagSet["verbose"] {
+			warns = append(warns, Warning{Message: "--quiet overrides --verbose"})
+		}
+	} else if flagSet["verbose"] {
+		s.Verbosity = VerbosityVerbose
+		if s.Format == FormatDefault {
+			s.Format = FormatVerbose
+		}
+	}
+	return warns
 }
 
 // FormatAllWarnings formats all warnings for display.

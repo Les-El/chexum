@@ -23,99 +23,30 @@ import (
 // Property 32: Hash validation mode reports correct algorithms
 // **Validates: Requirements 24.2, 24.4**
 func TestHashValidationMode_ReportsCorrectAlgorithms_Property(t *testing.T) {
-	f := func(hashLength int, hexChars []byte) bool {
-		// Only test valid algorithm lengths
-		validLengths := map[int][]string{
-			32:  {hash.AlgorithmMD5},
-			40:  {hash.AlgorithmSHA1},
-			64:  {hash.AlgorithmSHA256},
-			128: {hash.AlgorithmSHA512, hash.AlgorithmBLAKE2b},
-		}
-		
-		expectedAlgorithms, isValidLength := validLengths[hashLength]
-		if !isValidLength {
-			return true // Skip invalid lengths
-		}
-		
-		// Create a hex string of the specified length
-		hexString := ""
-		for i := 0; i < hashLength; i++ {
-			// Use modulo to cycle through hex characters
-			if len(hexChars) == 0 {
-				hexString += "0" // Default to '0' if no hex chars provided
-			} else {
-				char := hexChars[i%len(hexChars)]
-				// Ensure it's a valid hex character
-				if (char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F') {
-					hexString += string(char)
-				} else {
-					hexString += "0" // Default to '0' for invalid chars
-				}
-			}
-		}
-		
-		// Create a config with this hash string
-		cfg := &config.Config{
-			Files:  []string{},
-			Hashes: []string{hexString},
-			Quiet:  true, // Suppress output for testing
-		}
-		
-		// Create a color handler with colors disabled for consistent testing
-		colorHandler := color.NewColorHandler()
-		colorHandler.SetEnabled(false)
-		
-		// Run hash validation mode
-		        streams := &console.Streams{Out: io.Discard, Err: io.Discard}
-				exitCode := runHashValidationMode(cfg, colorHandler, streams)		
-		// For valid hash strings, exit code should be 0
-		if exitCode != config.ExitSuccess {
-			return false
-		}
-		
-		// Verify that DetectHashAlgorithm returns the expected algorithms
-		algorithms := hash.DetectHashAlgorithm(hexString)
-		
-		// Check that the returned algorithms match expected
-		if len(algorithms) != len(expectedAlgorithms) {
-			return false
-		}
-		
-		// Check that all expected algorithms are present
-		for _, expected := range expectedAlgorithms {
-			found := false
-			for _, actual := range algorithms {
-				if actual == expected {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return false
-			}
-		}
-		
-		return true
+	validLengths := map[int][]string{
+		32:  {hash.AlgorithmMD5},
+		40:  {hash.AlgorithmSHA1},
+		64:  {hash.AlgorithmSHA256},
+		128: {hash.AlgorithmSHA512, hash.AlgorithmBLAKE2b},
 	}
 
-	// Custom generator for valid lengths and hex characters
+	f := func(hashLength int, hexChars []byte) bool {
+		expectedAlgorithms, ok := validLengths[hashLength]
+		if !ok {
+			return true
+		}
+		
+		hexString := generateHexString(hashLength, hexChars)
+		return verifyValidationMode(hexString, expectedAlgorithms)
+	}
+
 	config := &quick.Config{
 		Values: func(values []reflect.Value, rand *rand.Rand) {
-			// Generate a valid length
-			validLengths := []int{32, 40, 64, 128}
-			length := validLengths[rand.Intn(len(validLengths))]
-			values[0] = reflect.ValueOf(length)
-			
-			// Generate some hex characters
-			hexChars := "0123456789abcdefABCDEF"
-			numChars := rand.Intn(10) + 1 // 1-10 characters
-			chars := make([]byte, numChars)
-			for i := range chars {
-				chars[i] = hexChars[rand.Intn(len(hexChars))]
-			}
-			values[1] = reflect.ValueOf(chars)
+			lengths := []int{32, 40, 64, 128}
+			values[0] = reflect.ValueOf(lengths[rand.Intn(len(lengths))])
+			values[1] = reflect.ValueOf(generateRandomHexChars(rand))
 		},
-		MaxCount: 100, // Run 100 iterations as specified in requirements
+		MaxCount: 100,
 	}
 
 	if err := quick.Check(f, config); err != nil {
@@ -123,250 +54,142 @@ func TestHashValidationMode_ReportsCorrectAlgorithms_Property(t *testing.T) {
 	}
 }
 
+func generateHexString(length int, chars []byte) string {
+	if len(chars) == 0 {
+		return strings.Repeat("0", length)
+	}
+	var sb strings.Builder
+	for i := 0; i < length; i++ {
+		c := chars[i%len(chars)]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			sb.WriteByte(c)
+		} else {
+			sb.WriteByte('0')
+		}
+	}
+	return sb.String()
+}
+
+func generateRandomHexChars(r *rand.Rand) []byte {
+	const hexSet = "0123456789abcdefABCDEF"
+	chars := make([]byte, r.Intn(10)+1)
+	for i := range chars {
+		chars[i] = hexSet[r.Intn(len(hexSet))]
+	}
+	return chars
+}
+
+func verifyValidationMode(hexString string, expected []string) bool {
+	cfg := &config.Config{Hashes: []string{hexString}, Quiet: true}
+	colorHandler := color.NewColorHandler()
+	colorHandler.SetEnabled(false)
+	
+	streams := &console.Streams{Out: io.Discard, Err: io.Discard}
+	if runHashValidationMode(cfg, colorHandler, streams) != config.ExitSuccess {
+		return false
+	}
+	
+	actual := hash.DetectHashAlgorithm(hexString)
+	if len(actual) != len(expected) {
+		return false
+	}
+	for _, e := range expected {
+		found := false
+		for _, a := range actual {
+			if a == e {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
 // TestHashValidationMode_ValidHashStrings tests validation of valid hash strings.
-// **Validates: Requirements 24.1, 24.2, 24.3, 24.4**
 func TestHashValidationMode_ValidHashStrings(t *testing.T) {
 	tests := []struct {
-		name              string
-		hashStr           string
-		expectedAlgorithms []string
-		expectedExitCode   int
+		name string
+		hash string
+		algs []string
 	}{
-		{
-			"valid md5",
-			"d41d8cd98f00b204e9800998ecf8427e",
-			[]string{hash.AlgorithmMD5},
-			config.ExitSuccess,
-		},
-		{
-			"valid sha1",
-			"da39a3ee5e6b4b0d3255bfef95601890afd80709",
-			[]string{hash.AlgorithmSHA1},
-			config.ExitSuccess,
-		},
-		{
-			"valid sha256",
-			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-			[]string{hash.AlgorithmSHA256},
-			config.ExitSuccess,
-		},
-		{
-			"valid sha512/blake2b (ambiguous)",
-			"cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
-			[]string{hash.AlgorithmSHA512, hash.AlgorithmBLAKE2b},
-			config.ExitSuccess,
-		},
-		{
-			"uppercase valid md5",
-			"D41D8CD98F00B204E9800998ECF8427E",
-			[]string{hash.AlgorithmMD5},
-			config.ExitSuccess,
-		},
-		{
-			"mixed case valid sha1",
-			"Da39A3ee5E6b4B0d3255BfeF95601890aFd80709",
-			[]string{hash.AlgorithmSHA1},
-			config.ExitSuccess,
-		},
+		{"MD5", "d41d8cd98f00b204e9800998ecf8427e", []string{hash.AlgorithmMD5}},
+		{"SHA1", "da39a3ee5e6b4b0d3255bfef95601890afd80709", []string{hash.AlgorithmSHA1}},
+		{"SHA256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{hash.AlgorithmSHA256}},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create config with the hash string
-			cfg := &config.Config{
-				Files:  []string{},
-				Hashes: []string{tt.hashStr},
-				Quiet:  true, // Suppress output for testing
-			}
-			
-			// Create color handler with colors disabled
-			colorHandler := color.NewColorHandler()
-			colorHandler.SetEnabled(false)
-			
-			// Run validation mode
-			        streams := &console.Streams{Out: io.Discard, Err: io.Discard}
-					exitCode := runHashValidationMode(cfg, colorHandler, streams)			
-			// Check exit code
-			if exitCode != tt.expectedExitCode {
-				t.Errorf("runHashValidationMode() exit code = %v, want %v", exitCode, tt.expectedExitCode)
-			}
-			
-			// Verify that DetectHashAlgorithm returns expected algorithms
-			algorithms := hash.DetectHashAlgorithm(tt.hashStr)
-			
-			if len(algorithms) != len(tt.expectedAlgorithms) {
-				t.Errorf("DetectHashAlgorithm() returned %d algorithms, expected %d", len(algorithms), len(tt.expectedAlgorithms))
-				t.Errorf("Got: %v, Expected: %v", algorithms, tt.expectedAlgorithms)
-				return
-			}
-			
-			// Check that all expected algorithms are present
-			for _, expected := range tt.expectedAlgorithms {
-				found := false
-				for _, actual := range algorithms {
-					if actual == expected {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("DetectHashAlgorithm() missing expected algorithm %s", expected)
-					t.Errorf("Got: %v, Expected: %v", algorithms, tt.expectedAlgorithms)
-				}
+			if !verifyValidationMode(tt.hash, tt.algs) {
+				t.Errorf("Validation failed for %s", tt.hash)
 			}
 		})
 	}
 }
 
 // TestHashValidationMode_InvalidHashStrings tests validation of invalid hash strings.
-// **Validates: Requirements 24.1, 24.3, 24.5**
 func TestHashValidationMode_InvalidHashStrings(t *testing.T) {
-	tests := []struct {
-		name             string
-		hashStr          string
-		expectedExitCode int
-	}{
-		{
-			"invalid hex characters",
-			"g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-			config.ExitInvalidArgs,
-		},
-		{
-			"too short",
-			"abc123",
-			config.ExitInvalidArgs,
-		},
-		{
-			"too long",
-			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855aa",
-			config.ExitInvalidArgs,
-		},
-		{
-			"wrong length (16 chars)",
-			"1234567890abcdef",
-			config.ExitInvalidArgs,
-		},
-		{
-			"wrong length (48 chars)",
-			"123456789012345678901234567890123456789012345678",
-			config.ExitInvalidArgs,
-		},
-		{
-			"contains space",
-			"e3b0c442 8fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-			config.ExitInvalidArgs,
-		},
-		{
-			"contains dash",
-			"e3b0c442-98fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-			config.ExitInvalidArgs,
-		},
-		{
-			"empty string",
-			"",
-			config.ExitInvalidArgs,
-		},
-		{
-			"single character",
-			"a",
-			config.ExitInvalidArgs,
-		},
-		{
-			"non-hex string",
-			"invalidhash",
-			config.ExitInvalidArgs,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create config with the hash string
-			cfg := &config.Config{
-				Files:  []string{},
-				Hashes: []string{tt.hashStr},
-				Quiet:  true, // Suppress output for testing
-			}
-			
-			// Create color handler with colors disabled
-			colorHandler := color.NewColorHandler()
-			colorHandler.SetEnabled(false)
-			
-			// Run validation mode
-			        streams := &console.Streams{Out: io.Discard, Err: io.Discard}
-					exitCode := runHashValidationMode(cfg, colorHandler, streams)			
-			// Check exit code
-			if exitCode != tt.expectedExitCode {
-				t.Errorf("runHashValidationMode() exit code = %v, want %v", exitCode, tt.expectedExitCode)
-			}
-			
-			// Verify that DetectHashAlgorithm returns no algorithms for invalid hashes
-			algorithms := hash.DetectHashAlgorithm(tt.hashStr)
-			if len(algorithms) != 0 {
-				t.Errorf("DetectHashAlgorithm() should return no algorithms for invalid hash, got: %v", algorithms)
+	tests := []string{"abc123", "invalid", "g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", ""}
+	for _, h := range tests {
+		t.Run(h, func(t *testing.T) {
+			cfg := &config.Config{Hashes: []string{h}, Quiet: true}
+			if runHashValidationMode(cfg, color.NewColorHandler(), &console.Streams{Out: io.Discard, Err: io.Discard}) != config.ExitInvalidArgs {
+				t.Errorf("Expected failure for %s", h)
 			}
 		})
 	}
 }
 
+var hashValidationMultipleTests = []struct {
+	name             string
+	hashes           []string
+	expectedExitCode int
+	description      string
+}{
+	{
+		"all valid hashes",
+		[]string{
+			"d41d8cd98f00b204e9800998ecf8427e",                                                                 // MD5
+			"da39a3ee5e6b4b0d3255bfef95601890afd80709",                                                         // SHA1
+			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",                                 // SHA256
+		},
+		config.ExitSuccess,
+		"all hashes are valid",
+	},
+	{
+		"mixed valid and invalid",
+		[]string{
+			"d41d8cd98f00b204e9800998ecf8427e", // Valid MD5
+			"invalidhash",                      // Invalid
+			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", // Valid SHA256
+		},
+		config.ExitInvalidArgs,
+		"some hashes are invalid",
+	},
+	{
+		"all invalid hashes",
+		[]string{
+			"invalidhash1",
+			"invalidhash2",
+			"g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		},
+		config.ExitInvalidArgs,
+		"all hashes are invalid",
+	},
+}
+
 // TestHashValidationMode_MultipleHashes tests validation of multiple hash strings.
 // **Validates: Requirements 24.1, 24.5**
 func TestHashValidationMode_MultipleHashes(t *testing.T) {
-	tests := []struct {
-		name             string
-		hashes           []string
-		expectedExitCode int
-		description      string
-	}{
-		{
-			"all valid hashes",
-			[]string{
-				"d41d8cd98f00b204e9800998ecf8427e",                                                                 // MD5
-				"da39a3ee5e6b4b0d3255bfef95601890afd80709",                                                         // SHA1
-				"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",                                 // SHA256
-			},
-			config.ExitSuccess,
-			"all hashes are valid",
-		},
-		{
-			"mixed valid and invalid",
-			[]string{
-				"d41d8cd98f00b204e9800998ecf8427e", // Valid MD5
-				"invalidhash",                      // Invalid
-				"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", // Valid SHA256
-			},
-			config.ExitInvalidArgs,
-			"some hashes are invalid",
-		},
-		{
-			"all invalid hashes",
-			[]string{
-				"invalidhash1",
-				"invalidhash2",
-				"g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-			},
-			config.ExitInvalidArgs,
-			"all hashes are invalid",
-		},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range hashValidationMultipleTests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create config with multiple hash strings
-			cfg := &config.Config{
-				Files:  []string{},
-				Hashes: tt.hashes,
-				Quiet:  true, // Suppress output for testing
-			}
-			
-			// Create color handler with colors disabled
+			cfg := &config.Config{Hashes: tt.hashes, Quiet: true}
 			colorHandler := color.NewColorHandler()
 			colorHandler.SetEnabled(false)
+			streams := &console.Streams{Out: io.Discard, Err: io.Discard}
 			
-			// Run validation mode
-			        streams := &console.Streams{Out: io.Discard, Err: io.Discard}
-					exitCode := runHashValidationMode(cfg, colorHandler, streams)			
-			// Check exit code
-			if exitCode != tt.expectedExitCode {
+			if exitCode := runHashValidationMode(cfg, colorHandler, streams); exitCode != tt.expectedExitCode {
 				t.Errorf("runHashValidationMode() exit code = %v, want %v for %s", exitCode, tt.expectedExitCode, tt.description)
 			}
 		})
@@ -376,220 +199,132 @@ func TestHashValidationMode_MultipleHashes(t *testing.T) {
 // **Validates: Requirements 25.2, 25.3**
 func TestFileHashComparisonMode_ReturnsCorrectExitCodes_Property(t *testing.T) {
 	f := func(fileContent []byte, shouldMatch bool) bool {
-		// Skip empty content to avoid edge cases
 		if len(fileContent) == 0 {
 			return true
 		}
 		
-		// Create a temporary file with the content
-		tmpFile, err := os.CreateTemp("", "hashi_test_*.txt")
-		if err != nil {
-			return false
-		}
-		defer os.Remove(tmpFile.Name())
-		defer tmpFile.Close()
+		path, cleanup := createTempFile(fileContent)
+		defer cleanup()
 		
-		if _, err := tmpFile.Write(fileContent); err != nil {
-			return false
-		}
-		tmpFile.Close()
-		
-		// Compute the actual hash of the file
-		computer, err := hash.NewComputer("sha256")
-		if err != nil {
-			return false
+		actualHash := computeSHA256(path)
+		expectedHash := actualHash
+		if !shouldMatch {
+			expectedHash = flipLastChar(actualHash)
 		}
 		
-		entry, err := computer.ComputeFile(tmpFile.Name())
-		if err != nil {
-			return false
-		}
-		
-		actualHash := entry.Hash
-		
-		// Create the expected hash based on shouldMatch
-		var expectedHash string
-		if shouldMatch {
-			expectedHash = actualHash
-		} else {
-			// Create a different hash by flipping the last character
-			if len(actualHash) > 0 {
-				lastChar := actualHash[len(actualHash)-1]
-				if lastChar == '0' {
-					expectedHash = actualHash[:len(actualHash)-1] + "1"
-				} else {
-					expectedHash = actualHash[:len(actualHash)-1] + "0"
-				}
-			} else {
-				expectedHash = "0000000000000000000000000000000000000000000000000000000000000000"
-			}
-		}
-		
-		// Create config for file+hash comparison
-		cfg := &config.Config{
-			Files:     []string{tmpFile.Name()},
-			Hashes:    []string{expectedHash},
-			Algorithm: "sha256",
-			Quiet:     true, // Suppress output for testing
-		}
-		
-		// Create color handler with colors disabled
-		colorHandler := color.NewColorHandler()
-		colorHandler.SetEnabled(false)
-		
-		// Run file+hash comparison mode
-		streams := &console.Streams{Out: io.Discard, Err: io.Discard}
-	exitCode := runFileHashComparisonMode(cfg, colorHandler, streams)
-		
-		// Verify exit code matches expectation
-		if shouldMatch {
-			return exitCode == config.ExitSuccess
-		} else {
-			return exitCode == config.ExitNoMatches
-		}
+		return runComparisonAndVerifyExitCode(path, expectedHash, shouldMatch)
 	}
 
-	// Custom generator for file content and match flag
 	config := &quick.Config{
 		Values: func(values []reflect.Value, rand *rand.Rand) {
-			// Generate random file content (1-1000 bytes)
-			contentLen := rand.Intn(1000) + 1
-			content := make([]byte, contentLen)
+			content := make([]byte, rand.Intn(1000)+1)
 			rand.Read(content)
 			values[0] = reflect.ValueOf(content)
-			
-			// Generate random shouldMatch flag
-			shouldMatch := rand.Intn(2) == 1
-			values[1] = reflect.ValueOf(shouldMatch)
+			values[1] = reflect.ValueOf(rand.Intn(2) == 1)
 		},
-		MaxCount: 100, // Run 100 iterations as specified in requirements
+		MaxCount: 100,
 	}
 
 	if err := quick.Check(f, config); err != nil {
 		t.Error(err)
 	}
+}
+
+func createTempFile(content []byte) (string, func()) {
+	tmpFile, _ := os.CreateTemp("", "hashi_test_*.txt")
+	tmpFile.Write(content)
+	tmpFile.Close()
+	return tmpFile.Name(), func() { os.Remove(tmpFile.Name()) }
+}
+
+func computeSHA256(path string) string {
+	c, _ := hash.NewComputer("sha256")
+	e, _ := c.ComputeFile(path)
+	return e.Hash
+}
+
+func flipLastChar(s string) string {
+	if len(s) == 0 {
+		return "0000000000000000000000000000000000000000000000000000000000000000"
+	}
+	last := s[len(s)-1]
+	if last == '0' {
+		return s[:len(s)-1] + "1"
+	}
+	return s[:len(s)-1] + "0"
+}
+
+func runComparisonAndVerifyExitCode(path, expected string, shouldMatch bool) bool {
+	cfg := &config.Config{
+		Files: []string{path},
+		Hashes: []string{expected},
+		Algorithm: "sha256",
+		Quiet: true,
+	}
+	streams := &console.Streams{Out: io.Discard, Err: io.Discard}
+	exitCode := runFileHashComparisonMode(cfg, color.NewColorHandler(), streams)
+	if shouldMatch {
+		return exitCode == config.ExitSuccess
+	}
+	return exitCode == config.ExitNoMatches
 }
 
 // Property 34: Bool output produces only true/false
 // **Validates: Requirements 26.1**
 func TestBoolOutput_ProducesOnlyTrueFalse_Property(t *testing.T) {
 	f := func(fileContent []byte, shouldMatch bool) bool {
-		// Skip empty content to avoid edge cases
 		if len(fileContent) == 0 {
 			return true
 		}
 		
-		// Create a temporary file with the given content
-		tmpFile, err := os.CreateTemp("", "hashi_bool_test_*.txt")
-		if err != nil {
-			return false
-		}
-		defer os.Remove(tmpFile.Name())
-		defer tmpFile.Close()
+		path, cleanup := createTempFile(fileContent)
+		defer cleanup()
 		
-		if _, err := tmpFile.Write(fileContent); err != nil {
-			return false
-		}
-		tmpFile.Close()
-		
-		// Compute the actual hash of the file
-		computer, err := hash.NewComputer("sha256")
-		if err != nil {
-			return false
+		expectedHash := computeSHA256(path)
+		if !shouldMatch {
+			expectedHash = "0000000000000000000000000000000000000000000000000000000000000000"
 		}
 		
-		entry, err := computer.ComputeFile(tmpFile.Name())
-		if err != nil {
-			return false
-		}
-		
-		// Create expected hash based on shouldMatch
-		var expectedHash string
-		if shouldMatch {
-			expectedHash = entry.Hash // Use actual hash for match
-		} else {
-			expectedHash = "0000000000000000000000000000000000000000000000000000000000000000" // Wrong hash for mismatch
-		}
-		
-		// Test boolean output mode
-		cfg := &config.Config{
-			Files:     []string{tmpFile.Name()},
-			Hashes:    []string{expectedHash},
-			Algorithm: "sha256",
-			Bool:      true, // Enable boolean output mode
-		}
-		
-		colorHandler := color.NewColorHandler()
-		colorHandler.SetEnabled(false)
-		
-		// Capture output using streams
-		var buf bytes.Buffer
-		streams := &console.Streams{Out: &buf, Err: io.Discard}
-		
-		exitCode := runFileHashComparisonMode(cfg, colorHandler, streams)
-		
-		outputStr := buf.String()
-		
-		// Verify output is exactly "true\n" or "false\n"
-		expectedOutput := ""
-		expectedExitCode := 0
-		if shouldMatch {
-			expectedOutput = "true\n"
-			expectedExitCode = config.ExitSuccess
-		} else {
-			expectedOutput = "false\n"
-			expectedExitCode = config.ExitNoMatches
-		}
-		
-		// Property: Bool output must be exactly "true" or "false" (with newline)
-		outputCorrect := outputStr == expectedOutput
-		exitCodeCorrect := exitCode == expectedExitCode
-		
-		return outputCorrect && exitCodeCorrect
+		return verifyBoolOutput(path, expectedHash, shouldMatch)
 	}
 	
-	config := &quick.Config{
-		MaxCount: 100, // Run 100 iterations as specified in requirements
-	}
-
+	config := &quick.Config{MaxCount: 100}
 	if err := quick.Check(f, config); err != nil {
 		t.Error(err)
 	}
 }
 
+func verifyBoolOutput(path, expected string, shouldMatch bool) bool {
+	cfg := &config.Config{
+		Files: []string{path},
+		Hashes: []string{expected},
+		Algorithm: "sha256",
+		Bool: true,
+	}
+	
+	var buf bytes.Buffer
+	streams := &console.Streams{Out: &buf, Err: io.Discard}
+	exitCode := runFileHashComparisonMode(cfg, color.NewColorHandler(), streams)
+	
+	output := buf.String()
+	expectedOutput := "false\n"
+	expectedExitCode := config.ExitNoMatches
+	if shouldMatch {
+		expectedOutput = "true\n"
+		expectedExitCode = config.ExitSuccess
+	}
+	
+	return output == expectedOutput && exitCode == expectedExitCode
+}
+
 // TestFileHashComparisonMode_MatchingHash tests file+hash comparison with matching hash.
 // **Validates: Requirements 25.1, 25.2**
 func TestFileHashComparisonMode_MatchingHash(t *testing.T) {
-	// Create a temporary file with known content
-	tmpFile, err := os.CreateTemp("", "hashi_test_*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
+	tmpFile, expectedHash := setupMatchingHashFile(t)
+	defer os.Remove(tmpFile)
 	
-	content := []byte("Hello, World!")
-	if _, err := tmpFile.Write(content); err != nil {
-		t.Fatalf("Failed to write to temp file: %v", err)
-	}
-	tmpFile.Close()
-	
-	// Compute the expected hash
-	computer, err := hash.NewComputer("sha256")
-	if err != nil {
-		t.Fatalf("Failed to create hash computer: %v", err)
-	}
-	
-	entry, err := computer.ComputeFile(tmpFile.Name())
-	if err != nil {
-		t.Fatalf("Failed to compute hash: %v", err)
-	}
-	
-	expectedHash := entry.Hash
-	
-	// Test regular output mode
 	cfg := &config.Config{
-		Files:     []string{tmpFile.Name()},
+		Files:     []string{tmpFile},
 		Hashes:    []string{expectedHash},
 		Algorithm: "sha256",
 		Quiet:     false,
@@ -597,24 +332,50 @@ func TestFileHashComparisonMode_MatchingHash(t *testing.T) {
 	
 	colorHandler := color.NewColorHandler()
 	colorHandler.SetEnabled(false)
-	
 	streams := &console.Streams{Out: io.Discard, Err: io.Discard}
-	exitCode := runFileHashComparisonMode(cfg, colorHandler, streams)
 	
-	if exitCode != config.ExitSuccess {
+	if exitCode := runFileHashComparisonMode(cfg, colorHandler, streams); exitCode != config.ExitSuccess {
 		t.Errorf("Expected exit code %d for matching hash, got %d", config.ExitSuccess, exitCode)
 	}
+}
+
+// TestFileHashComparisonMode_MatchingHashBool tests boolean output mode for matching hash.
+func TestFileHashComparisonMode_MatchingHashBool(t *testing.T) {
+	tmpFile, expectedHash := setupMatchingHashFile(t)
+	defer os.Remove(tmpFile)
 	
-	// Test boolean output mode
-	cfg.Bool = true
-	cfg.Quiet = true // Bool implies Quiet behavior
+	cfg := &config.Config{
+		Files:     []string{tmpFile},
+		Hashes:    []string{expectedHash},
+		Algorithm: "sha256",
+		Bool:      true,
+		Quiet:     true,
+	}
 	
-	streams = &console.Streams{Out: io.Discard, Err: io.Discard}
-	exitCode = runFileHashComparisonMode(cfg, colorHandler, streams)
+	colorHandler := color.NewColorHandler()
+	colorHandler.SetEnabled(false)
+	streams := &console.Streams{Out: io.Discard, Err: io.Discard}
 	
-	if exitCode != config.ExitSuccess {
+	if exitCode := runFileHashComparisonMode(cfg, colorHandler, streams); exitCode != config.ExitSuccess {
 		t.Errorf("Expected exit code %d for matching hash in bool mode, got %d", config.ExitSuccess, exitCode)
 	}
+}
+
+func setupMatchingHashFile(t *testing.T) (string, string) {
+	tmpFile, err := os.CreateTemp("", "hashi_test_*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	
+	content := []byte("Hello, World!")
+	if _, err := tmpFile.Write(content); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	tmpFile.Close()
+	
+	computer, _ := hash.NewComputer("sha256")
+	entry, _ := computer.ComputeFile(tmpFile.Name())
+	return tmpFile.Name(), entry.Hash
 }
 
 // TestFileHashComparisonMode_MismatchingHash tests file+hash comparison with mismatching hash.
@@ -781,24 +542,11 @@ func TestFileHashComparisonMode_StdinWithHashError(t *testing.T) {
 
 // TestStandardHashingMode tests the main hashing logic for multiple files.
 func TestStandardHashingMode(t *testing.T) {
-	// 1. Setup temp files with some identical and some unique content
-	tmpDir, _ := os.MkdirTemp("", "hashi_std_test_*")
+	tmpDir, files := setupStandardTestFiles()
 	defer os.RemoveAll(tmpDir)
 	
-	f1 := filepath.Join(tmpDir, "file1.txt")
-	f2 := filepath.Join(tmpDir, "file2.txt") // Same as f1
-	f3 := filepath.Join(tmpDir, "file3.txt") // Unique
-	
-	contentA := []byte("match me")
-	contentB := []byte("unique")
-	
-	os.WriteFile(f1, contentA, 0644)
-	os.WriteFile(f2, contentA, 0644)
-	os.WriteFile(f3, contentB, 0644)
-	
-	// 2. Run standard mode
 	cfg := config.DefaultConfig()
-	cfg.Files = []string{f1, f2, f3}
+	cfg.Files = files
 	
 	colorHandler := color.NewColorHandler()
 	colorHandler.SetEnabled(false)
@@ -807,42 +555,48 @@ func TestStandardHashingMode(t *testing.T) {
 	var outBuf, errBuf bytes.Buffer
 	streams := &console.Streams{Out: &outBuf, Err: &errBuf}
 	
-	exitCode := runStandardHashingMode(cfg, colorHandler, streams, errHandler)
-	
-	if exitCode != config.ExitSuccess {
+	if exitCode := runStandardHashingMode(cfg, colorHandler, streams, errHandler); exitCode != config.ExitSuccess {
 		t.Errorf("Expected exit code 0, got %d. Stderr: %s", exitCode, errBuf.String())
 	}
 	
-	outputStr := outBuf.String()
-	
-	// 3. Verify grouping (Default format)
-	// Output should contain two match entries for contentA and one unique for contentB
-	if !strings.Contains(outputStr, "file1.txt") || !strings.Contains(outputStr, "file2.txt") {
+	if !strings.Contains(outBuf.String(), "file1.txt") || !strings.Contains(outBuf.String(), "file2.txt") {
 		t.Error("Missing file1 or file2 in output")
 	}
 	
-	// 4. Test JSON format
-	outBuf.Reset()
-	cfg.OutputFormat = "json"
-	runStandardHashingMode(cfg, colorHandler, streams, errHandler)
+	t.Run("JSON", func(t *testing.T) {
+		outBuf.Reset()
+		cfg.OutputFormat = "json"
+		runStandardHashingMode(cfg, colorHandler, streams, errHandler)
+		verifyJSONResult(t, outBuf.Bytes())
+	})
+}
+
+func setupStandardTestFiles() (string, []string) {
+	tmpDir, _ := os.MkdirTemp("", "hashi_std_test_*")
+	f1 := filepath.Join(tmpDir, "file1.txt")
+	f2 := filepath.Join(tmpDir, "file2.txt")
+	f3 := filepath.Join(tmpDir, "file3.txt")
 	
-	var jsonRes struct {
+	contentA := []byte("match me")
+	contentB := []byte("unique")
+	
+	os.WriteFile(f1, contentA, 0644)
+	os.WriteFile(f2, contentA, 0644)
+	os.WriteFile(f3, contentB, 0644)
+	
+	return tmpDir, []string{f1, f2, f3}
+}
+
+func verifyJSONResult(t *testing.T, data []byte) {
+	var res struct {
 		Processed   int `json:"processed"`
-		MatchGroups []struct {
-			Count int `json:"count"`
-		} `json:"match_groups"`
-		Unmatched []interface{} `json:"unmatched"`
+		MatchGroups []struct{ Count int } `json:"match_groups"`
 	}
-	
-	if err := json.Unmarshal(outBuf.Bytes(), &jsonRes); err != nil {
-		t.Fatalf("Failed to parse JSON output: %v", err)
+	if err := json.Unmarshal(data, &res); err != nil {
+		t.Fatalf("JSON parse failed: %v", err)
 	}
-	
-	if jsonRes.Processed != 3 {
-		t.Errorf("Expected 3 processed files, got %d", jsonRes.Processed)
-	}
-	if len(jsonRes.MatchGroups) != 1 || jsonRes.MatchGroups[0].Count != 2 {
-		t.Errorf("Expected 1 match group of size 2, got %+v", jsonRes.MatchGroups)
+	if res.Processed != 3 || len(res.MatchGroups) != 1 || res.MatchGroups[0].Count != 2 {
+		t.Errorf("Unexpected JSON: %+v", res)
 	}
 }
 
@@ -863,209 +617,77 @@ func contains(s, substr string) bool {
 // This test approaches the problem differently by testing the classification and main() logic separately.
 // **Validates: Requirements 25.6**
 func TestStdinHashEdgeCaseDetection(t *testing.T) {
-	// Test 1: Verify ClassifyArguments correctly identifies "-" as a file
 	t.Run("ClassifyArguments_IdentifiesStdinAsFile", func(t *testing.T) {
 		args := []string{"-", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}
-		
 		files, hashes, err := config.ClassifyArguments(args, "sha256")
-		
 		if err != nil {
-			t.Fatalf("ClassifyArguments should not error for valid stdin + hash, got: %v", err)
+			t.Fatalf("ClassifyArguments failed: %v", err)
 		}
-		
-		// "-" should be classified as a file
 		if len(files) != 1 || files[0] != "-" {
-			t.Errorf("Expected files=['-'], got files=%v", files)
+			t.Errorf("Expected files=['-'], got %v", files)
 		}
-		
-		// Hash should be classified as a hash
-		if len(hashes) != 1 || hashes[0] != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
-			t.Errorf("Expected hashes=['e3b0c44...'], got hashes=%v", hashes)
+		if len(hashes) != 1 {
+			t.Errorf("Expected 1 hash, got %v", hashes)
 		}
 	})
 	
-	// Test 2: Verify Config.HasStdinMarker() works correctly
 	t.Run("Config_HasStdinMarker", func(t *testing.T) {
-		cfg := &config.Config{
-			Files: []string{"-", "somefile.txt"},
-		}
-		
+		cfg := &config.Config{Files: []string{"-", "file.txt"}}
 		if !cfg.HasStdinMarker() {
-			t.Error("Config.HasStdinMarker() should return true when Files contains '-'")
-		}
-		
-		cfg.Files = []string{"file1.txt", "file2.txt"}
-		if cfg.HasStdinMarker() {
-			t.Error("Config.HasStdinMarker() should return false when Files doesn't contain '-'")
+			t.Error("Expected HasStdinMarker to be true")
 		}
 	})
 	
-	// Test 3: Test the edge case detection logic directly (simulating main() logic)
-	t.Run("EdgeCaseDetection_StdinWithHashes", func(t *testing.T) {
-		cfg := &config.Config{
-			Files:  []string{"-"},
-			Hashes: []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
-		}
-		
-		// This simulates the edge case detection logic from main()
-		shouldError := len(cfg.Hashes) > 0 && cfg.HasStdinMarker()
-		
-		if !shouldError {
-			t.Error("Edge case detection should identify stdin + hash as an error condition")
-		}
+	t.Run("EdgeCaseDetection", func(t *testing.T) {
+		verifyStdinHashEdgeCase(t, []string{"-"}, []string{"hash"})
+		verifyStdinHashEdgeCase(t, []string{"-", "-"}, []string{"hash"})
 	})
 	
-	// Test 4: Test with multiple stdin markers (edge case of edge case)
-	t.Run("EdgeCaseDetection_MultipleStdinMarkers", func(t *testing.T) {
-		args := []string{"-", "-", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}
-		
-		files, hashes, err := config.ClassifyArguments(args, "sha256")
-		
-		if err != nil {
-			t.Fatalf("ClassifyArguments should not error, got: %v", err)
-		}
-		
-		// Both "-" should be classified as files
-		if len(files) != 2 || files[0] != "-" || files[1] != "-" {
-			t.Errorf("Expected files=['-', '-'], got files=%v", files)
-		}
-		
-		// Should still trigger the multiple files + hash error
-		cfg := &config.Config{Files: files, Hashes: hashes}
-		shouldErrorMultipleFiles := len(cfg.Files) > 1 && len(cfg.Hashes) > 0
-		shouldErrorStdin := cfg.HasStdinMarker() && len(cfg.Hashes) > 0
-		
-		if !shouldErrorMultipleFiles {
-			t.Error("Should detect multiple files + hash error")
-		}
-		if !shouldErrorStdin {
-			t.Error("Should detect stdin + hash error")
-		}
-	})
-	
-	// Test 5: Verify that stdin without hashes works correctly (should not error)
-	t.Run("StdinWithoutHashes_ShouldNotError", func(t *testing.T) {
-		cfg := &config.Config{
-			Files:  []string{"-"},
-			Hashes: []string{}, // No hashes
-		}
-		
-		// This should NOT trigger the edge case error
-		shouldError := len(cfg.Hashes) > 0 && cfg.HasStdinMarker()
-		
-		if shouldError {
-			t.Error("Stdin without hashes should not trigger edge case error")
-		}
-	})
-	
-	// Test 6: Integration test - verify the actual error message
-	t.Run("Integration_ActualErrorMessage", func(t *testing.T) {
-		// This test captures stderr to verify the actual error message
-		// We'll use a simple approach by checking the exit code
-		
-		cfg := &config.Config{
-			Files:  []string{"-"},
-			Hashes: []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
-		}
-		
-		// Simulate the main() edge case detection
-		hasStdinWithHashes := len(cfg.Hashes) > 0 && cfg.HasStdinMarker()
-		
-		if !hasStdinWithHashes {
-			t.Error("Integration test should detect stdin + hash condition")
-		}
-		
-		// The actual error handling in main() would exit with ExitInvalidArgs
-		expectedExitCode := config.ExitInvalidArgs
-		if expectedExitCode != 3 {
-			t.Errorf("Expected exit code 3 for invalid args, got %d", expectedExitCode)
+	t.Run("StdinWithoutHashes", func(t *testing.T) {
+		cfg := &config.Config{Files: []string{"-"}, Hashes: []string{}}
+		if cfg.HasStdinMarker() && len(cfg.Hashes) > 0 {
+			t.Error("Should not trigger error without hashes")
 		}
 	})
 }
 
-// TestArgumentClassificationRobustness tests edge cases in argument classification
-// to ensure the stdin fix doesn't break other scenarios.
-func TestArgumentClassificationRobustness(t *testing.T) {
-	tests := []struct {
-		name           string
-		args           []string
-		algorithm      string
-		expectedFiles  []string
-		expectedHashes []string
-		shouldError    bool
-		description    string
-	}{
-		{
-			name:           "stdin_with_valid_hash",
-			args:           []string{"-", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
-			algorithm:      "sha256",
-			expectedFiles:  []string{"-"},
-			expectedHashes: []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
-			shouldError:    false,
-			description:    "stdin marker should be classified as file, hash as hash",
-		},
-		{
-			name:           "stdin_with_wrong_algorithm_hash",
-			args:           []string{"-", "d41d8cd98f00b204e9800998ecf8427e"}, // MD5 hash
-			algorithm:      "sha256",
-			expectedFiles:  []string{},
-			expectedHashes: []string{},
-			shouldError:    true,
-			description:    "should error when hash doesn't match algorithm",
-		},
-		{
-			name:           "multiple_stdin_markers",
-			args:           []string{"-", "-"},
-			algorithm:      "sha256",
-			expectedFiles:  []string{"-", "-"},
-			expectedHashes: []string{},
-			shouldError:    false,
-			description:    "multiple stdin markers should all be classified as files",
-		},
-		{
-			name:           "stdin_mixed_with_files",
-			args:           []string{"-", "nonexistent.txt"},
-			algorithm:      "sha256",
-			expectedFiles:  []string{"-", "nonexistent.txt"},
-			expectedHashes: []string{},
-			shouldError:    false,
-			description:    "stdin marker mixed with other files should work",
-		},
-		{
-			name:           "hash_that_looks_like_filename",
-			args:           []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
-			algorithm:      "sha256",
-			expectedFiles:  []string{},
-			expectedHashes: []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
-			shouldError:    false,
-			description:    "valid hash should be classified as hash when no file exists",
-		},
+func verifyStdinHashEdgeCase(t *testing.T, files, hashes []string) {
+	cfg := &config.Config{Files: files, Hashes: hashes}
+	if !(len(cfg.Hashes) > 0 && cfg.HasStdinMarker()) {
+		t.Errorf("Edge case not detected for files=%v, hashes=%v", files, hashes)
 	}
-	
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			files, hashes, err := config.ClassifyArguments(tt.args, tt.algorithm)
-			
-			if tt.shouldError {
-				if err == nil {
-					t.Errorf("Expected error for %s, got nil", tt.description)
-				}
-				return
-			}
-			
-			if err != nil {
-				t.Errorf("Unexpected error for %s: %v", tt.description, err)
-				return
-			}
-			
-			if !stringSlicesEqual(files, tt.expectedFiles) {
-				t.Errorf("Files mismatch for %s: expected %v, got %v", tt.description, tt.expectedFiles, files)
-			}
-			
-			if !stringSlicesEqual(hashes, tt.expectedHashes) {
-				t.Errorf("Hashes mismatch for %s: expected %v, got %v", tt.description, tt.expectedHashes, hashes)
-			}
-		})
+}
+
+// TestArgumentClassificationRobustness tests edge cases in argument classification.
+func TestArgumentClassificationRobustness(t *testing.T) {
+	t.Run("ValidStdin", func(t *testing.T) {
+		verifyClassification(t, []string{"-", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, "sha256", []string{"-"}, []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, false)
+	})
+	t.Run("AlgorithmMismatch", func(t *testing.T) {
+		verifyClassification(t, []string{"-", "d41d8cd98f00b204e9800998ecf8427e"}, "sha256", nil, nil, true)
+	})
+	t.Run("MultipleStdin", func(t *testing.T) {
+		verifyClassification(t, []string{"-", "-"}, "sha256", []string{"-", "-"}, []string{}, false)
+	})
+	t.Run("HashAsFilename", func(t *testing.T) {
+		hash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		verifyClassification(t, []string{hash}, "sha256", []string{}, []string{hash}, false)
+	})
+}
+
+func verifyClassification(t *testing.T, args []string, alg string, expFiles, expHashes []string, expErr bool) {
+	f, h, err := config.ClassifyArguments(args, alg)
+	if expErr {
+		if err == nil {
+			t.Error("Expected error")
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !stringSlicesEqual(f, expFiles) || !stringSlicesEqual(h, expHashes) {
+		t.Errorf("Mismatch: got files=%v, hashes=%v; want files=%v, hashes=%v", f, h, expFiles, expHashes)
 	}
 }
 

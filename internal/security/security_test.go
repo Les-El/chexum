@@ -93,3 +93,37 @@ func TestResolveSafePath(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateFileName(t *testing.T) {
+	opts := Options{Verbose: true}
+	if err := ValidateFileName("secret.txt", opts); err == nil {
+		t.Error("Expected error for secret.txt")
+	}
+	if err := ValidateFileName("safe.txt", opts); err != nil {
+		t.Errorf("Unexpected error for safe.txt: %v", err)
+	}
+}
+
+func TestValidateDirPath(t *testing.T) {
+	opts := Options{Verbose: true}
+	if err := ValidateDirPath("config/file.txt", opts); err == nil {
+		t.Error("Expected error for config/file.txt")
+	}
+	if err := ValidateDirPath("safe/file.txt", opts); err != nil {
+		t.Errorf("Unexpected error for safe/file.txt: %v", err)
+	}
+}
+
+func TestValidateInputs(t *testing.T) {
+	opts := Options{Verbose: true}
+	files := []string{"safe.txt"}
+	hashes := []string{"abc123"}
+	if err := ValidateInputs(files, hashes, opts); err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	
+	badHashes := []string{"not-hex"}
+	if err := ValidateInputs(files, badHashes, opts); err == nil {
+		t.Error("Expected error for invalid hex hash")
+	}
+}

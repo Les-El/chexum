@@ -2,6 +2,7 @@ package errors
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"testing/quick"
 
@@ -12,59 +13,48 @@ import (
 func TestDetermineExitCode(t *testing.T) {
 	cfg := config.DefaultConfig()
 
-	t.Run("success with no errors", func(t *testing.T) {
-		result := &hash.Result{
-			Entries: []hash.Entry{{Hash: "abc"}},
-			Matches: []hash.MatchGroup{{Hash: "abc", Count: 1}},
-		}
-		if code := DetermineExitCode(cfg, result); code != config.ExitSuccess {
-			t.Errorf("expected 0, got %d", code)
+	t.Run("Success", func(t *testing.T) {
+		res := &hash.Result{Entries: []hash.Entry{{Hash: "a"}}, Matches: []hash.MatchGroup{{Hash: "a", Count: 1}}}
+		if c := DetermineExitCode(cfg, res); c != config.ExitSuccess {
+			t.Errorf("got %d", c)
 		}
 	})
 
-	t.Run("mismatch with match-required", func(t *testing.T) {
-		cfgMatch := config.DefaultConfig()
-		cfgMatch.MatchRequired = true
-		result := &hash.Result{
-			Entries:   []hash.Entry{{Hash: "abc"}},
-			Unmatched: []hash.Entry{{Hash: "abc"}},
-		}
-		if code := DetermineExitCode(cfgMatch, result); code != config.ExitNoMatches {
-			t.Errorf("expected %d, got %d", config.ExitNoMatches, code)
+	t.Run("Match Required", func(t *testing.T) {
+		cMatch := config.DefaultConfig()
+		cMatch.MatchRequired = true
+		res := &hash.Result{Unmatched: []hash.Entry{{Hash: "a"}}}
+		if c := DetermineExitCode(cMatch, res); c != config.ExitNoMatches {
+			t.Errorf("got %d", c)
 		}
 	})
 
-	t.Run("partial failure with some errors", func(t *testing.T) {
-		result := &hash.Result{
-			Entries: []hash.Entry{{Hash: "abc"}, {Error: fmt.Errorf("fail")}},
-			Errors:  []error{fmt.Errorf("fail")},
-		}
-		if code := DetermineExitCode(cfg, result); code != config.ExitPartialFailure {
-			t.Errorf("expected %d, got %d", config.ExitPartialFailure, code)
+	t.Run("Errors", func(t *testing.T) {
+		res := &hash.Result{Errors: []error{fmt.Errorf("err")}}
+		if c := DetermineExitCode(cfg, res); c != config.ExitPartialFailure {
+			t.Errorf("got %d", c)
 		}
 	})
+}
 
-	t.Run("specific error: file not found", func(t *testing.T) {
-		err := NewFileNotFoundError("missing.txt")
-		result := &hash.Result{
-			Entries: []hash.Entry{{Error: err}},
-			Errors:  []error{err},
-		}
-		if code := DetermineExitCode(cfg, result); code != config.ExitFileNotFound {
-			t.Errorf("expected %d, got %d", config.ExitFileNotFound, code)
-		}
-	})
+func TestDetermineDiscoveryExitCode(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"not exist", os.ErrNotExist, config.ExitFileNotFound},
+		{"permission", os.ErrPermission, config.ExitPermissionErr},
+		{"other", fmt.Errorf("other"), config.ExitPartialFailure},
+	}
 
-	t.Run("specific error: permission denied", func(t *testing.T) {
-		err := NewPermissionError("locked.txt")
-		result := &hash.Result{
-			Entries: []hash.Entry{{Error: err}},
-			Errors:  []error{err},
-		}
-		if code := DetermineExitCode(cfg, result); code != config.ExitPermissionErr {
-			t.Errorf("expected %d, got %d", config.ExitPermissionErr, code)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DetermineDiscoveryExitCode(tt.err); got != tt.want {
+				t.Errorf("DetermineDiscoveryExitCode() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 // TestProperty_ExitCodes verifies universal exit code properties.

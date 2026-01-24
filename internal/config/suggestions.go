@@ -62,7 +62,17 @@ func SuggestFlag(unknown string) string {
 	}
 
 	for _, known := range KnownFlags {
-		dist := levenshtein(unknownLower, strings.ToLower(known))
+		knownLower := strings.ToLower(known)
+		// Optimization: length difference is a lower bound for Levenshtein distance
+		lenDiff := len(unknownLower) - len(knownLower)
+		if lenDiff < 0 {
+			lenDiff = -lenDiff
+		}
+		if lenDiff >= minDist {
+			continue
+		}
+
+		dist := levenshtein(unknownLower, knownLower)
 		if dist < minDist {
 			minDist = dist
 			bestMatch = known
@@ -88,27 +98,31 @@ func levenshtein(s1, s2 string) int {
 		return len(s1)
 	}
 	
-	copy := make([]int, len(s2)+1)
-	for i := 0; i < len(copy); i++ {
-		copy[i] = i
+	row := make([]int, len(s2)+1)
+	for i := 0; i < len(row); i++ {
+		row[i] = i
 	}
 	
 	for i := 0; i < len(s1); i++ {
-		prev := i + 1
-		for j := 0; j < len(s2); j++ {
-			cur := copy[j]
-			if s1[i] != s2[j] {
-				cur++
-			}
-			if cur > prev+1 {
-				cur = prev + 1
-			}
-			if cur > copy[j+1]+1 {
-				cur = copy[j+1] + 1
-			}
-			copy[j], prev = prev, cur
-		}
-		copy[len(s2)] = prev
+		row[len(s2)] = updateLevenshteinRow(s1[i], s2, row)
 	}
-	return copy[len(s2)]
+	return row[len(s2)]
+}
+
+func updateLevenshteinRow(char1 byte, s2 string, row []int) int {
+	prev := row[0] + 1
+	for j := 0; j < len(s2); j++ {
+		cur := row[j]
+		if char1 != s2[j] {
+			cur++
+		}
+		if cur > prev+1 {
+			cur = prev + 1
+		}
+		if cur > row[j+1]+1 {
+			cur = row[j+1] + 1
+		}
+		row[j], prev = prev, cur
+	}
+	return prev
 }

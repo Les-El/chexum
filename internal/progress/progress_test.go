@@ -17,59 +17,59 @@ import (
 func TestProgressIndicatorsAppearForLongOperations(t *testing.T) {
 	// Property: For any total > 0, if we wait longer than threshold,
 	// the progress bar should be enabled
-	f := func(total uint16) bool {
-		if total == 0 {
-			return true // Skip zero case
-		}
-
-		// Create a buffer to capture output
-		buf := &bytes.Buffer{}
-
-		// Create progress bar with short threshold for testing
-		opts := &Options{
-			Total:       int64(total),
-			Description: "Testing",
-			Threshold:   50 * time.Millisecond,
-			Writer:      buf,
-		}
-
-		bar := NewBar(opts)
-
-		// Initially, progress should not be enabled
-		if bar.IsEnabled() {
-			return false
-		}
-
-		// Wait longer than threshold
-		time.Sleep(60 * time.Millisecond)
-
-		// Add some progress
-		bar.Add(1)
-
-		// After threshold, if we're on a TTY-like output, progress should be enabled
-		// Since we're using a buffer (not a TTY), enabled should still be true
-		// but IsTTY should be false
-		if bar.enabled && bar.isTTY {
-			// This would be true on a real TTY
-			return true
-		}
-
-		// For non-TTY (like our buffer), enabled becomes true but bar is nil
-		if bar.enabled && !bar.isTTY {
-			return true
-		}
-
-		bar.Finish()
-		return true
-	}
-
 	config := &quick.Config{
 		MaxCount: 100,
 	}
 
-	if err := quick.Check(f, config); err != nil {
+	if err := quick.Check(verifyProgressIndicatorsProperty, config); err != nil {
 		t.Errorf("Property violated: %v", err)
 	}
+}
+
+func verifyProgressIndicatorsProperty(total uint16) bool {
+	if total == 0 {
+		return true // Skip zero case
+	}
+
+	// Create a buffer to capture output
+	buf := &bytes.Buffer{}
+
+	// Create progress bar with short threshold for testing
+	opts := &Options{
+		Total:       int64(total),
+		Description: "Testing",
+		Threshold:   50 * time.Millisecond,
+		Writer:      buf,
+	}
+
+	bar := NewBar(opts)
+
+	// Initially, progress should not be enabled
+	if bar.IsEnabled() {
+		return false
+	}
+
+	// Wait longer than threshold
+	time.Sleep(60 * time.Millisecond)
+
+	// Add some progress
+	bar.Add(1)
+
+	// After threshold, if we're on a TTY-like output, progress should be enabled
+	// Since we're using a buffer (not a TTY), enabled should still be true
+	// but IsTTY should be false
+	if bar.enabled && bar.isTTY {
+		// This would be true on a real TTY
+		return true
+	}
+
+	// For non-TTY (like our buffer), enabled becomes true but bar is nil
+	if bar.enabled && !bar.isTTY {
+		return true
+	}
+
+	bar.Finish()
+	return true
 }
 
 // TestProgressThresholdBehavior tests that progress indicators only appear
@@ -123,47 +123,47 @@ func TestProgressThresholdBehavior(t *testing.T) {
 	}
 }
 
+var progressCalculationTests = []struct {
+	name       string
+	total      int64
+	current    int64
+	wantPercent float64
+}{
+	{
+		name:       "zero progress",
+		total:      100,
+		current:    0,
+		wantPercent: 0.0,
+	},
+	{
+		name:       "half progress",
+		total:      100,
+		current:    50,
+		wantPercent: 50.0,
+	},
+	{
+		name:       "complete progress",
+		total:      100,
+		current:    100,
+		wantPercent: 100.0,
+	},
+	{
+		name:       "partial progress",
+		total:      1000,
+		current:    333,
+		wantPercent: 33.3,
+	},
+	{
+		name:       "zero total",
+		total:      0,
+		current:    0,
+		wantPercent: 0.0,
+	},
+}
+
 // TestProgressCalculation tests that progress percentage is calculated correctly.
 func TestProgressCalculation(t *testing.T) {
-	tests := []struct {
-		name       string
-		total      int64
-		current    int64
-		wantPercent float64
-	}{
-		{
-			name:       "zero progress",
-			total:      100,
-			current:    0,
-			wantPercent: 0.0,
-		},
-		{
-			name:       "half progress",
-			total:      100,
-			current:    50,
-			wantPercent: 50.0,
-		},
-		{
-			name:       "complete progress",
-			total:      100,
-			current:    100,
-			wantPercent: 100.0,
-		},
-		{
-			name:       "partial progress",
-			total:      1000,
-			current:    333,
-			wantPercent: 33.3,
-		},
-		{
-			name:       "zero total",
-			total:      0,
-			current:    0,
-			wantPercent: 0.0,
-		},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range progressCalculationTests {
 		t.Run(tt.name, func(t *testing.T) {
 			buf := &bytes.Buffer{}
 			opts := &Options{
@@ -343,4 +343,50 @@ func TestProgressBarWithNilOptions(t *testing.T) {
 	if bar.threshold != 100*time.Millisecond {
 		t.Errorf("Nil options should use default threshold 100ms, got %v", bar.threshold)
 	}
+}
+
+func TestNewBar(t *testing.T) {
+	TestProgressBarWithNilOptions(t)
+}
+
+func TestAdd(t *testing.T) {
+	TestProgressBarOperations(t)
+}
+
+func TestIncrement(t *testing.T) {
+	TestProgressBarOperations(t)
+}
+
+func TestSetCurrent(t *testing.T) {
+	TestProgressBarOperations(t)
+}
+
+func TestFinish(t *testing.T) {
+	TestProgressBarOperations(t)
+}
+
+func TestClear(t *testing.T) {
+	bar := NewBar(nil)
+	bar.Clear() // Should not panic
+}
+
+func TestIsEnabled(t *testing.T) {
+	bar := NewBar(nil)
+	_ = bar.IsEnabled()
+}
+
+func TestIsTTY(t *testing.T) {
+	TestTTYDetection(t)
+}
+
+func TestETA(t *testing.T) {
+	TestETACalculation(t)
+}
+
+func TestPercentage(t *testing.T) {
+	TestProgressCalculation(t)
+}
+
+func TestString(t *testing.T) {
+	TestProgressBarString(t)
 }

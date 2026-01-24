@@ -36,6 +36,7 @@ const (
 // ConfigCommandError is returned when a user tries to use a config subcommand.
 type ConfigCommandError struct{}
 
+// Error returns the formatted error message.
 func (e *ConfigCommandError) Error() string {
 	return `Error: hashi does not support config subcommands
 
@@ -50,6 +51,7 @@ For configuration documentation and examples, see:
   https://github.com/[your-repo]/hashi#configuration`
 }
 
+// ExitCode returns the appropriate exit code for the error.
 func (e *ConfigCommandError) ExitCode() int {
 	return ExitInvalidArgs
 }
@@ -69,7 +71,19 @@ type EnvConfig struct {
 	HashiHidden        bool   // HASHI_HIDDEN
 	HashiVerbose       bool   // HASHI_VERBOSE
 	HashiQuiet         bool   // HASHI_QUIET
+	HashiBool          bool   // HASHI_BOOL
 	HashiPreserveOrder bool   // HASHI_PRESERVE_ORDER
+	HashiMatchRequired bool   // HASHI_MATCH_REQUIRED
+	
+	HashiOutputFile string // HASHI_OUTPUT_FILE
+	HashiAppend     bool   // HASHI_APPEND
+	HashiForce      bool   // HASHI_FORCE
+	
+	HashiLogFile string // HASHI_LOG_FILE
+	HashiLogJSON string // HASHI_LOG_JSON
+	
+	HashiHelp    bool // HASHI_HELP
+	HashiVersion bool // HASHI_VERSION
 	
 	HashiBlacklistFiles string // HASHI_BLACKLIST_FILES
 	HashiBlacklistDirs  string // HASHI_BLACKLIST_DIRS
@@ -209,7 +223,19 @@ func LoadEnvConfig() *EnvConfig {
 		HashiHidden:        parseBoolEnv("HASHI_HIDDEN"),
 		HashiVerbose:       parseBoolEnv("HASHI_VERBOSE"),
 		HashiQuiet:         parseBoolEnv("HASHI_QUIET"),
+		HashiBool:          parseBoolEnv("HASHI_BOOL"),
 		HashiPreserveOrder: parseBoolEnv("HASHI_PRESERVE_ORDER"),
+		HashiMatchRequired: parseBoolEnv("HASHI_MATCH_REQUIRED"),
+		
+		HashiOutputFile: os.Getenv("HASHI_OUTPUT_FILE"),
+		HashiAppend:     parseBoolEnv("HASHI_APPEND"),
+		HashiForce:      parseBoolEnv("HASHI_FORCE"),
+		
+		HashiLogFile: os.Getenv("HASHI_LOG_FILE"),
+		HashiLogJSON: os.Getenv("HASHI_LOG_JSON"),
+		
+		HashiHelp:    parseBoolEnv("HASHI_HELP"),
+		HashiVersion: parseBoolEnv("HASHI_VERSION"),
 		
 		HashiBlacklistFiles: os.Getenv("HASHI_BLACKLIST_FILES"),
 		HashiBlacklistDirs:  os.Getenv("HASHI_BLACKLIST_DIRS"),
@@ -242,11 +268,15 @@ func parseCommaSeparated(s string) []string {
 
 // ApplyEnvConfig applies environment variable configuration to a Config.
 func (env *EnvConfig) ApplyEnvConfig(cfg *Config, flagSet *pflag.FlagSet) {
+	env.applyBasicEnvConfig(cfg, flagSet)
+	env.applyOutputEnvConfig(cfg, flagSet)
+	env.applyBlacklistEnvConfig(cfg)
+	env.applyWhitelistEnvConfig(cfg)
+}
+
+func (env *EnvConfig) applyBasicEnvConfig(cfg *Config, flagSet *pflag.FlagSet) {
 	if !flagSet.Changed("algorithm") && env.HashiAlgorithm != "" {
 		cfg.Algorithm = env.HashiAlgorithm
-	}
-	if !flagSet.Changed("format") && env.HashiOutputFormat != "" {
-		cfg.OutputFormat = env.HashiOutputFormat
 	}
 	if !flagSet.Changed("recursive") && env.HashiRecursive {
 		cfg.Recursive = env.HashiRecursive
@@ -260,10 +290,45 @@ func (env *EnvConfig) ApplyEnvConfig(cfg *Config, flagSet *pflag.FlagSet) {
 	if !flagSet.Changed("quiet") && env.HashiQuiet {
 		cfg.Quiet = env.HashiQuiet
 	}
+	if !flagSet.Changed("bool") && env.HashiBool {
+		cfg.Bool = env.HashiBool
+	}
 	if !flagSet.Changed("preserve-order") && env.HashiPreserveOrder {
 		cfg.PreserveOrder = env.HashiPreserveOrder
 	}
-	
+	if !flagSet.Changed("match-required") && env.HashiMatchRequired {
+		cfg.MatchRequired = env.HashiMatchRequired
+	}
+	if !flagSet.Changed("help") && env.HashiHelp {
+		cfg.ShowHelp = env.HashiHelp
+	}
+	if !flagSet.Changed("version") && env.HashiVersion {
+		cfg.ShowVersion = env.HashiVersion
+	}
+}
+
+func (env *EnvConfig) applyOutputEnvConfig(cfg *Config, flagSet *pflag.FlagSet) {
+	if !flagSet.Changed("format") && env.HashiOutputFormat != "" {
+		cfg.OutputFormat = env.HashiOutputFormat
+	}
+	if !flagSet.Changed("output") && env.HashiOutputFile != "" {
+		cfg.OutputFile = env.HashiOutputFile
+	}
+	if !flagSet.Changed("append") && env.HashiAppend {
+		cfg.Append = env.HashiAppend
+	}
+	if !flagSet.Changed("force") && env.HashiForce {
+		cfg.Force = env.HashiForce
+	}
+	if !flagSet.Changed("log-file") && env.HashiLogFile != "" {
+		cfg.LogFile = env.HashiLogFile
+	}
+	if !flagSet.Changed("log-json") && env.HashiLogJSON != "" {
+		cfg.LogJSON = env.HashiLogJSON
+	}
+}
+
+func (env *EnvConfig) applyBlacklistEnvConfig(cfg *Config) {
 	if env.HashiBlacklistFiles != "" {
 		patterns := parseCommaSeparated(env.HashiBlacklistFiles)
 		cfg.BlacklistFiles = append(cfg.BlacklistFiles, patterns...)
@@ -272,6 +337,9 @@ func (env *EnvConfig) ApplyEnvConfig(cfg *Config, flagSet *pflag.FlagSet) {
 		patterns := parseCommaSeparated(env.HashiBlacklistDirs)
 		cfg.BlacklistDirs = append(cfg.BlacklistDirs, patterns...)
 	}
+}
+
+func (env *EnvConfig) applyWhitelistEnvConfig(cfg *Config) {
 	if env.HashiWhitelistFiles != "" {
 		patterns := parseCommaSeparated(env.HashiWhitelistFiles)
 		cfg.WhitelistFiles = append(cfg.WhitelistFiles, patterns...)
@@ -356,6 +424,7 @@ type ConfigFile struct {
 	Files []string `toml:"files,omitempty"`
 }
 
+// LoadConfigFile reads and parses the configuration file at the given path.
 func LoadConfigFile(path string) (*ConfigFile, error) {
 	if path == "" {
 		return &ConfigFile{}, nil
@@ -398,53 +467,73 @@ func loadTextConfig(file *os.File) (*ConfigFile, error) {
 	return cfg, nil
 }
 
+// ApplyConfigFile merges the file configuration into the main Config, respecting flag precedence.
 func (cf *ConfigFile) ApplyConfigFile(cfg *Config, flagSet *pflag.FlagSet) error {
+	cf.applyBoolDefaults(cfg, flagSet)
+	cf.applyStringDefaults(cfg, flagSet)
+	
+	if err := cf.applySizeDefaults(cfg, flagSet); err != nil {
+		return err
+	}
+	
+	cf.applyListDefaults(cfg, flagSet)
+	cf.applySecurityDefaults(cfg)
+	
+	if len(cf.Files) > 0 && len(cfg.Files) == 0 {
+		cfg.Files = cf.Files
+	}
+	
+	return nil
+}
+
+func (cf *ConfigFile) applyBoolDefaults(cfg *Config, flagSet *pflag.FlagSet) {
 	d := cf.Defaults
-	
-	if d.Recursive != nil && !flagSet.Changed("recursive") {
-		cfg.Recursive = *d.Recursive
+	boolFlags := []struct {
+		val  *bool
+		name string
+		ptr  *bool
+	}{
+		{d.Recursive, "recursive", &cfg.Recursive},
+		{d.Hidden, "hidden", &cfg.Hidden},
+		{d.Verbose, "verbose", &cfg.Verbose},
+		{d.Quiet, "quiet", &cfg.Quiet},
+		{d.Bool, "bool", &cfg.Bool},
+		{d.PreserveOrder, "preserve-order", &cfg.PreserveOrder},
+		{d.MatchRequired, "match-required", &cfg.MatchRequired},
+		{d.Append, "append", &cfg.Append},
+		{d.Force, "force", &cfg.Force},
 	}
-	if d.Hidden != nil && !flagSet.Changed("hidden") {
-		cfg.Hidden = *d.Hidden
+
+	for _, f := range boolFlags {
+		if f.val != nil && !flagSet.Changed(f.name) {
+			*f.ptr = *f.val
+		}
 	}
-	if d.Verbose != nil && !flagSet.Changed("verbose") {
-		cfg.Verbose = *d.Verbose
+}
+
+func (cf *ConfigFile) applyStringDefaults(cfg *Config, flagSet *pflag.FlagSet) {
+	d := cf.Defaults
+	stringFlags := []struct {
+		val  *string
+		name string
+		ptr  *string
+	}{
+		{d.Algorithm, "algorithm", &cfg.Algorithm},
+		{d.OutputFormat, "format", &cfg.OutputFormat},
+		{d.OutputFile, "output", &cfg.OutputFile},
+		{d.LogFile, "log-file", &cfg.LogFile},
+		{d.LogJSON, "log-json", &cfg.LogJSON},
 	}
-	if d.Quiet != nil && !flagSet.Changed("quiet") {
-		cfg.Quiet = *d.Quiet
+
+	for _, f := range stringFlags {
+		if f.val != nil && !flagSet.Changed(f.name) {
+			*f.ptr = *f.val
+		}
 	}
-	if d.Bool != nil && !flagSet.Changed("bool") {
-		cfg.Bool = *d.Bool
-	}
-	if d.PreserveOrder != nil && !flagSet.Changed("preserve-order") {
-		cfg.PreserveOrder = *d.PreserveOrder
-	}
-	if d.MatchRequired != nil && !flagSet.Changed("match-required") {
-		cfg.MatchRequired = *d.MatchRequired
-	}
-	if d.Append != nil && !flagSet.Changed("append") {
-		cfg.Append = *d.Append
-	}
-	if d.Force != nil && !flagSet.Changed("force") {
-		cfg.Force = *d.Force
-	}
-	
-	if d.Algorithm != nil && !flagSet.Changed("algorithm") {
-		cfg.Algorithm = *d.Algorithm
-	}
-	if d.OutputFormat != nil && !flagSet.Changed("format") {
-		cfg.OutputFormat = *d.OutputFormat
-	}
-	if d.OutputFile != nil && !flagSet.Changed("output") {
-		cfg.OutputFile = *d.OutputFile
-	}
-	if d.LogFile != nil && !flagSet.Changed("log-file") {
-		cfg.LogFile = *d.LogFile
-	}
-	if d.LogJSON != nil && !flagSet.Changed("log-json") {
-		cfg.LogJSON = *d.LogJSON
-	}
-	
+}
+
+func (cf *ConfigFile) applySizeDefaults(cfg *Config, flagSet *pflag.FlagSet) error {
+	d := cf.Defaults
 	if d.MinSize != nil && !flagSet.Changed("min-size") {
 		size, err := parseSize(*d.MinSize)
 		if err != nil {
@@ -459,38 +548,31 @@ func (cf *ConfigFile) ApplyConfigFile(cfg *Config, flagSet *pflag.FlagSet) error
 		}
 		cfg.MaxSize = size
 	}
-	
+	return nil
+}
+
+func (cf *ConfigFile) applyListDefaults(cfg *Config, flagSet *pflag.FlagSet) {
+	d := cf.Defaults
 	if len(d.Include) > 0 && !flagSet.Changed("include") {
 		cfg.Include = d.Include
 	}
 	if len(d.Exclude) > 0 && !flagSet.Changed("exclude") {
 		cfg.Exclude = d.Exclude
 	}
-	
+}
+
+func (cf *ConfigFile) applySecurityDefaults(cfg *Config) {
 	s := cf.Security
-	if len(s.BlacklistFiles) > 0 {
-		cfg.BlacklistFiles = append(cfg.BlacklistFiles, s.BlacklistFiles...)
-	}
-	if len(s.BlacklistDirs) > 0 {
-		cfg.BlacklistDirs = append(cfg.BlacklistDirs, s.BlacklistDirs...)
-	}
-	if len(s.WhitelistFiles) > 0 {
-		cfg.WhitelistFiles = append(cfg.WhitelistFiles, s.WhitelistFiles...)
-	}
-	if len(s.WhitelistDirs) > 0 {
-		cfg.WhitelistDirs = append(cfg.WhitelistDirs, s.WhitelistDirs...)
-	}
-	
-	if len(cf.Files) > 0 && len(cfg.Files) == 0 {
-		cfg.Files = cf.Files
-	}
-	
-	return nil
+	cfg.BlacklistFiles = append(cfg.BlacklistFiles, s.BlacklistFiles...)
+	cfg.BlacklistDirs = append(cfg.BlacklistDirs, s.BlacklistDirs...)
+	cfg.WhitelistFiles = append(cfg.WhitelistFiles, s.WhitelistFiles...)
+	cfg.WhitelistDirs = append(cfg.WhitelistDirs, s.WhitelistDirs...)
 }
 
 var ValidOutputFormats = []string{"default", "verbose", "json", "plain"}
 var ValidAlgorithms = []string{"sha256", "md5", "sha1", "sha512", "blake2b"}
 
+// ValidateOutputFormat checks if the provided format string is supported.
 func ValidateOutputFormat(format string) error {
 	for _, valid := range ValidOutputFormats {
 		if format == valid {
@@ -500,6 +582,7 @@ func ValidateOutputFormat(format string) error {
 	return fmt.Errorf("invalid output format %q: must be one of %s", format, strings.Join(ValidOutputFormats, ", "))
 }
 
+// ValidateAlgorithm checks if the provided algorithm string is supported.
 func ValidateAlgorithm(algorithm string) error {
 	for _, valid := range ValidAlgorithms {
 		if algorithm == valid {
@@ -625,76 +708,111 @@ func ParseArgs(args []string) (*Config, []conflict.Warning, error) {
 	cfg := DefaultConfig()
 	fs := pflag.NewFlagSet("hashi", pflag.ContinueOnError)
 
-	fs.BoolVarP(&cfg.Recursive, "recursive", "r", false, "Process directories recursively")
-	fs.BoolVar(&cfg.Hidden, "hidden", false, "Include hidden files")
-	fs.StringVarP(&cfg.Algorithm, "algorithm", "a", "sha256", "Hash algorithm")
-	fs.BoolVarP(&cfg.Verbose, "verbose", "v", false, "Enable verbose output")
-	fs.BoolVarP(&cfg.Quiet, "quiet", "q", false, "Suppress stdout")
-	fs.BoolVarP(&cfg.Bool, "bool", "b", false, "Boolean output mode")
-	fs.BoolVar(&cfg.PreserveOrder, "preserve-order", false, "Keep input order")
-	fs.BoolVar(&cfg.MatchRequired, "match-required", false, "Exit 0 only if matches found")
-	fs.StringVarP(&cfg.OutputFormat, "format", "f", "default", "Output format")
-	fs.StringVarP(&cfg.OutputFile, "output", "o", "", "Write output to file")
-	fs.BoolVar(&cfg.Append, "append", false, "Append to output file")
-	fs.BoolVar(&cfg.Force, "force", false, "Overwrite without prompting")
-
-	var jsonOutput, plainOutput bool
-	fs.BoolVar(&jsonOutput, "json", false, "Output in JSON format")
-	fs.BoolVar(&plainOutput, "plain", false, "Output in plain format")
-
-	fs.StringVar(&cfg.LogFile, "log-file", "", "File for logging")
-	fs.StringVar(&cfg.LogJSON, "log-json", "", "File for JSON logging")
-
-	fs.StringSliceVarP(&cfg.Include, "include", "i", nil, "Glob patterns to include")
-	fs.StringSliceVarP(&cfg.Exclude, "exclude", "e", nil, "Glob patterns to exclude")
-	
-	var minSizeStr, maxSizeStr string
-	fs.StringVar(&minSizeStr, "min-size", "0", "Minimum file size")
-	fs.StringVar(&maxSizeStr, "max-size", "-1", "Maximum file size")
-
-	var modifiedAfterStr, modifiedBeforeStr string
-	fs.StringVar(&modifiedAfterStr, "modified-after", "", "Date")
-	fs.StringVar(&modifiedBeforeStr, "modified-before", "", "Date")
-
-	fs.StringVarP(&cfg.ConfigFile, "config", "c", "", "Path to config file")
-	fs.BoolVarP(&cfg.ShowHelp, "help", "h", false, "Show help")
-	fs.BoolVarP(&cfg.ShowVersion, "version", "V", false, "Show version")
-
-	if err := fs.Parse(args); err != nil {
-		// Try to suggest a correction for unknown flag errors
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "unknown flag: ") {
-			unknown := strings.TrimPrefix(errMsg, "unknown flag: ")
-			suggestion := SuggestFlag(unknown)
-			if suggestion != "" {
-				return nil, nil, fmt.Errorf("%s (Did you mean %s?)", errMsg, suggestion)
-			}
-		}
+	// 1. Define and parse flags
+	defineFlags(fs, cfg)
+	if err := parseFlags(fs, args); err != nil {
 		return nil, nil, err
 	}
 
-	var err error
-	cfg.MinSize, err = parseSize(minSizeStr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid --min-size: %w", err)
-	}
-	cfg.MaxSize, err = parseSize(maxSizeStr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid --max-size: %w", err)
-	}
-	cfg.ModifiedAfter, err = parseDate(modifiedAfterStr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid --modified-after: %w", err)
-	}
-	cfg.ModifiedBefore, err = parseDate(modifiedBeforeStr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid --modified-before: %w", err)
+	// 2. Validate basic flag values
+	if err := validateBasicFlags(cfg, fs); err != nil {
+		return nil, nil, err
 	}
 
+	// 3. Handle remaining positional arguments
+	if err := handleArguments(cfg, fs); err != nil {
+		return nil, nil, err
+	}
+
+	// 4. Apply external configuration
+	if err := applyExternalConfig(cfg, fs); err != nil {
+		return nil, nil, err
+	}
+
+	// 5. Resolve final state and validate
+	return finalizeConfig(cfg, args, fs)
+}
+
+func defineFlags(flagSet *pflag.FlagSet, cfg *Config) {
+	flagSet.BoolVarP(&cfg.Recursive, "recursive", "r", false, "Process directories recursively")
+	flagSet.BoolVar(&cfg.Hidden, "hidden", false, "Include hidden files")
+	flagSet.StringVarP(&cfg.Algorithm, "algorithm", "a", "sha256", "Hash algorithm")
+	flagSet.BoolVarP(&cfg.Verbose, "verbose", "v", false, "Enable verbose output")
+	flagSet.BoolVarP(&cfg.Quiet, "quiet", "q", false, "Suppress stdout")
+	flagSet.BoolVarP(&cfg.Bool, "bool", "b", false, "Boolean output mode")
+	flagSet.BoolVar(&cfg.PreserveOrder, "preserve-order", false, "Keep input order")
+	flagSet.BoolVar(&cfg.MatchRequired, "match-required", false, "Exit 0 only if matches found")
+	flagSet.StringVarP(&cfg.OutputFormat, "format", "f", "default", "Output format")
+	flagSet.StringVarP(&cfg.OutputFile, "output", "o", "", "Write output to file")
+	flagSet.BoolVar(&cfg.Append, "append", false, "Append to output file")
+	flagSet.BoolVar(&cfg.Force, "force", false, "Overwrite without prompting")
+
+	jsonOutput := new(bool)
+	plainOutput := new(bool)
+	flagSet.BoolVar(jsonOutput, "json", false, "Output in JSON format")
+	flagSet.BoolVar(plainOutput, "plain", false, "Output in plain format")
+
+	flagSet.StringVar(&cfg.LogFile, "log-file", "", "File for logging")
+	flagSet.StringVar(&cfg.LogJSON, "log-json", "", "File for JSON logging")
+
+	flagSet.StringSliceVarP(&cfg.Include, "include", "i", nil, "Glob patterns to include")
+	flagSet.StringSliceVarP(&cfg.Exclude, "exclude", "e", nil, "Glob patterns to exclude")
+	
+	// Add placeholders for string-based filters that need parsing
+	flagSet.String("min-size", "0", "Minimum file size")
+	flagSet.String("max-size", "-1", "Maximum file size")
+	flagSet.String("modified-after", "", "Date")
+	flagSet.String("modified-before", "", "Date")
+
+	flagSet.StringVarP(&cfg.ConfigFile, "config", "c", "", "Path to config file")
+	flagSet.BoolVarP(&cfg.ShowHelp, "help", "h", false, "Show help")
+	flagSet.BoolVarP(&cfg.ShowVersion, "version", "V", false, "Show version")
+}
+
+func parseFlags(fs *pflag.FlagSet, args []string) error {
+	if err := fs.Parse(args); err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "unknown flag: ") {
+			unknown := strings.TrimPrefix(errMsg, "unknown flag: ")
+			if suggestion := SuggestFlag(unknown); suggestion != "" {
+				return fmt.Errorf("%s (Did you mean %s?)", errMsg, suggestion)
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func validateBasicFlags(cfg *Config, fs *pflag.FlagSet) error {
+	var err error
+	if minStr, _ := fs.GetString("min-size"); minStr != "" {
+		if cfg.MinSize, err = parseSize(minStr); err != nil {
+			return fmt.Errorf("invalid --min-size: %w", err)
+		}
+	}
+	if maxStr, _ := fs.GetString("max-size"); maxStr != "" {
+		if cfg.MaxSize, err = parseSize(maxStr); err != nil {
+			return fmt.Errorf("invalid --max-size: %w", err)
+		}
+	}
+	if afterStr, _ := fs.GetString("modified-after"); afterStr != "" {
+		if cfg.ModifiedAfter, err = parseDate(afterStr); err != nil {
+			return fmt.Errorf("invalid --modified-after: %w", err)
+		}
+	}
+	if beforeStr, _ := fs.GetString("modified-before"); beforeStr != "" {
+		if cfg.ModifiedBefore, err = parseDate(beforeStr); err != nil {
+			return fmt.Errorf("invalid --modified-before: %w", err)
+		}
+	}
+	return nil
+}
+
+func handleArguments(cfg *Config, fs *pflag.FlagSet) error {
 	remainingArgs := fs.Args()
 	for _, arg := range remainingArgs {
 		if arg == "config" {
-			return nil, nil, &ConfigCommandError{}
+			return &ConfigCommandError{}
 		}
 	}
 
@@ -709,59 +827,59 @@ func ParseArgs(args []string) (*Config, []conflict.Warning, error) {
 		if hasHashLikeArgs {
 			cfg.Files = []string{}
 			cfg.Hashes = remainingArgs
-		} else {
-			files, hashes, err := ClassifyArguments(remainingArgs, cfg.Algorithm)
-			if err != nil {
-				return nil, nil, err
-			}
-			cfg.Files = files
-			cfg.Hashes = hashes
+			return nil
 		}
-	} else {
-		files, hashes, err := ClassifyArguments(remainingArgs, cfg.Algorithm)
-		if err != nil {
-			return nil, nil, err
-		}
-		cfg.Files = files
-		cfg.Hashes = hashes
 	}
 
-	// 1. Apply Config File (Lower precedence than Env Vars)
+	files, hashes, err := ClassifyArguments(remainingArgs, cfg.Algorithm)
+	if err != nil {
+		return err
+	}
+	cfg.Files = files
+	cfg.Hashes = hashes
+	return nil
+}
+
+func applyExternalConfig(cfg *Config, flagSet *pflag.FlagSet) error {
+	envCfg := LoadEnvConfig()
 	configPath := cfg.ConfigFile
+
+	// Priority: Flag > Environment > Auto-discovery
+	if !flagSet.Changed("config") && envCfg.HashiConfig != "" {
+		configPath = envCfg.HashiConfig
+	}
+
 	if configPath == "" {
 		configPath = FindConfigFile()
 	}
 	if configPath != "" {
 		configFile, err := LoadConfigFile(configPath)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load config file %s: %w", configPath, err)
+			return fmt.Errorf("failed to load config file %s: %w", configPath, err)
 		}
-		if err := configFile.ApplyConfigFile(cfg, fs); err != nil {
-			return nil, nil, fmt.Errorf("failed to apply config file %s: %w", configPath, err)
+		if err := configFile.ApplyConfigFile(cfg, flagSet); err != nil {
+			return fmt.Errorf("failed to apply config file %s: %w", configPath, err)
 		}
 	}
 
-	// 2. Apply Environment Variables (Higher precedence than Config File)
-	envCfg := LoadEnvConfig()
-	envCfg.ApplyEnvConfig(cfg, fs)
+	envCfg.ApplyEnvConfig(cfg, flagSet)
+	return nil
+}
 
-	// CONFLICT RESOLUTION LOGIC
-	
-	// 2. Resolve final state using the Pipeline of Intent
-	flagSet := map[string]bool{
-		"json":    jsonOutput,
-		"plain":   plainOutput,
+func finalizeConfig(cfg *Config, args []string, flagSet *pflag.FlagSet) (*Config, []conflict.Warning, error) {
+	flagSetMap := map[string]bool{
+		"json":    flagSet.Changed("json"),
+		"plain":   flagSet.Changed("plain"),
 		"quiet":   cfg.Quiet,
 		"verbose": cfg.Verbose,
 		"bool":    cfg.Bool,
 	}
 
-	state, resolveWarnings, err := conflict.ResolveState(args, flagSet, cfg.OutputFormat)
+	state, resolveWarnings, err := conflict.ResolveState(args, flagSetMap, cfg.OutputFormat)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// 3. Apply resolved state back to Config
 	cfg.OutputFormat = string(state.Format)
 	cfg.Quiet = (state.Verbosity == conflict.VerbosityQuiet)
 	cfg.Verbose = (state.Verbosity == conflict.VerbosityVerbose)
@@ -770,20 +888,29 @@ func ParseArgs(args []string) (*Config, []conflict.Warning, error) {
 		cfg.Quiet = true 
 	}
 
-	// 4. Final Validation (non-conflict checks)
 	validationWarnings, err := ValidateConfig(cfg)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	allWarnings := append(resolveWarnings, validationWarnings...)
-
-	return cfg, allWarnings, nil
+	return cfg, append(resolveWarnings, validationWarnings...), nil
 }
 
 // HelpText returns the formatted help text.
 func HelpText() string {
-	return `hashi - A command-line hash comparison tool
+	var sb strings.Builder
+	sb.WriteString(helpHeader)
+	sb.WriteString(helpUsage)
+	sb.WriteString(helpBooleanMode)
+	sb.WriteString(helpOutputFormats)
+	sb.WriteString(helpFiltering)
+	sb.WriteString(helpConfiguration)
+	sb.WriteString(helpEnvironment)
+	sb.WriteString(helpFooter)
+	return sb.String()
+}
+
+const helpHeader = `hashi - A command-line hash comparison tool
 
 EXAMPLES
   hashi                          Hash all files in current directory
@@ -792,7 +919,9 @@ EXAMPLES
   hashi -r /path/to/dir          Recursively hash directory
   hashi --json *.txt             Output results as JSON
   hashi -                        Read file list from stdin
+`
 
+const helpUsage = `
 USAGE
   hashi [flags] [files...]
 
@@ -806,7 +935,9 @@ FLAGS
       --hidden              Include hidden files
   -a, --algorithm string    Hash algorithm: sha256, md5, sha1, sha512, blake2b (default: sha256)
       --preserve-order      Keep input order instead of grouping by hash
+`
 
+const helpBooleanMode = `
 BOOLEAN MODE (-b / --bool)
   Boolean mode outputs just "true" or "false" for scripting use cases.
   It overrides other output formats and implies quiet behavior.
@@ -816,24 +947,21 @@ BOOLEAN MODE (-b / --bool)
 
   With --match-required:
     hashi -b --match-required *.txt    # true if ANY matches found
+`
 
-  Check for uniqueness (using negation):
-    ! hashi -b --match-required *.txt  # true if NO matches (all unique)
-
-  Scripting examples:
-    hashi -b file1 file2 && echo "match" || echo "different"
-    if hashi -b old.txt new.txt; then echo "unchanged"; fi
-    RESULT=$(hashi -b file1 file2)  # Capture true/false
-
+const helpOutputFormats = `
 OUTPUT FORMATS
   -f, --format string       Output format: default, verbose, json, plain
       --json                Shorthand for --format=json
       --plain               Shorthand for --format=plain
-  -b, --bool                Boolean output mode (true/false) - overrides other output formats
   -o, --output string       Write output to file
       --append              Append to output file
       --force               Overwrite without prompting
+      --log-file string     File for logging
+      --log-json string     File for JSON logging
+`
 
+const helpFiltering = `
 EXIT CODE CONTROL
       --match-required      Exit 0 only if matches found
 
@@ -844,7 +972,9 @@ FILTERING
       --max-size string     Maximum file size (-1 for no limit)
       --modified-after      Only files modified after date (YYYY-MM-DD)
       --modified-before     Only files modified before date (YYYY-MM-DD)
+`
 
+const helpConfiguration = `
 CONFIGURATION
   -c, --config string       Path to config file
 
@@ -853,49 +983,20 @@ CONFIGURATION
     $XDG_CONFIG_HOME/hashi/config.toml   XDG standard location
     ~/.config/hashi/config.toml          XDG fallback location
     ~/.hashi/config.toml                 Traditional dotfile location
+`
 
-  Config File Format (TOML):
-    [defaults]
-    algorithm = "sha256"
-    output_format = "plain"
-    recursive = false
-    quiet = false
+const helpEnvironment = `
+ENVIRONMENT VARIABLES
+  HASHI_* Variables (override config file settings):
+    HASHI_CONFIG            Default config file path
+    HASHI_ALGORITHM         Hash algorithm (sha256, md5, sha1, sha512, blake2b)
+    HASHI_OUTPUT_FORMAT     Output format (default, verbose, json, plain)
+    HASHI_RECURSIVE         Process directories recursively (true/false)
+`
 
-    [colors]
-    enabled = true
-    matches = "green"
-    mismatches = "red"
-    warnings = "yellow"
-
-    [security]
-    blacklist_files = ["temp*", "draft*", "backup*"]
-    blacklist_dirs = ["cache", "tmp*", "build*"]
-    whitelist_files = ["important_config_report.txt"]
-    whitelist_dirs = ["results_config"]
-
-  Configuration Precedence (highest to lowest):
-    1. Command-line flags (including explicit defaults like --algorithm=sha256)
-    2. Environment variables (HASHI_*)
-    3. Project config (./.hashi.toml)
-    4. User config (~/.config/hashi.toml)
-    5. Built-in defaults
-
-  Examples of precedence behavior:
-    export HASHI_ALGORITHM=md5
-    hashi file.txt                    # Uses md5 (env var overrides default)
-    hashi --algorithm=sha256 file.txt # Uses sha256 (explicit flag overrides env var)
-    hashi --algorithm=md5 file.txt    # Uses md5 (explicit flag, same as env var)
-
-  Note: Explicit flags always override environment variables, even when the flag
-  value equals the built-in default. This ensures predictable behavior.
-
-STDIN SUPPORT
-  Use "-" as a file argument to read file paths from stdin:
-    find . -name "*.txt" | hashi -
-    echo "file1.txt" | hashi -
-
+const helpFooter = `
 EXIT CODES
-  0   Success (all files processed, or matches found with --match-required)
+  0   Success
   1   No matches found (with --match-required)
   2   Some files failed to process
   3   Invalid arguments
@@ -903,45 +1004,15 @@ EXIT CODES
   5   Permission denied
   130 Interrupted (Ctrl-C)
 
-ENVIRONMENT VARIABLES
-  Standard Variables:
-    NO_COLOR                Disable color output
-    DEBUG                   Enable debug logging
-    TMPDIR                  Temporary directory location
-    HOME                    User home directory
-    XDG_CONFIG_HOME         XDG config directory
-
-  HASHI_* Variables (override config file settings):
-    HASHI_CONFIG            Default config file path
-    HASHI_ALGORITHM         Hash algorithm (sha256, md5, sha1, sha512, blake2b)
-    HASHI_OUTPUT_FORMAT     Output format (default, verbose, json, plain)
-    HASHI_RECURSIVE         Process directories recursively (true/false)
-    HASHI_HIDDEN            Include hidden files (true/false)
-    HASHI_VERBOSE           Enable verbose output (true/false)
-    HASHI_QUIET             Suppress stdout output (true/false)
-    HASHI_PRESERVE_ORDER    Maintain input order vs grouping (true/false)
-
-  Security Variables (additive - add to built-in patterns):
-    HASHI_BLACKLIST_FILES   File name patterns to block (comma-separated)
-    HASHI_BLACKLIST_DIRS    Directory name patterns to block (comma-separated)
-    HASHI_WHITELIST_FILES   File name patterns that override blacklists (comma-separated)
-    HASHI_WHITELIST_DIRS    Directory name patterns that override blacklists (comma-separated)
-
-  Examples:
-    export HASHI_ALGORITHM=sha512
-    export HASHI_OUTPUT_FORMAT=json
-    export HASHI_RECURSIVE=true
-    export HASHI_BLACKLIST_FILES="temp*,draft*,backup*"
-    export HASHI_WHITELIST_FILES="important_config_report.txt"
-
 For more information, visit: https://github.com/example/hashi
 `
-}
 
+// VersionText returns the current version string.
 func VersionText() string {
 	return "hashi version 0.0.19"
 }
 
+// HasStdinMarker checks if the special "-" argument is present in the file list.
 func (c *Config) HasStdinMarker() bool {
 	for _, file := range c.Files {
 		if file == "-" {
@@ -951,6 +1022,7 @@ func (c *Config) HasStdinMarker() bool {
 	return false
 }
 
+// FilesWithoutStdin returns the list of files excluding the stdin marker "-".
 func (c *Config) FilesWithoutStdin() []string {
 	result := make([]string, 0, len(c.Files))
 	for _, file := range c.Files {
@@ -961,6 +1033,7 @@ func (c *Config) FilesWithoutStdin() []string {
 	return result
 }
 
+// ClassifyArguments separates arguments into file paths and hash strings.
 func ClassifyArguments(args []string, algorithm string) (files []string, hashes []string, err error) {
 	for _, arg := range args {
 		if arg == "" {
@@ -976,6 +1049,9 @@ func ClassifyArguments(args []string, algorithm string) (files []string, hashes 
 		}
 		detectedAlgorithms := detectHashAlgorithm(arg)
 		if len(detectedAlgorithms) == 0 {
+			if isValidHexString(arg) {
+				return nil, nil, fmt.Errorf("argument %q looks like a hash but has an unknown length", arg)
+			}
 			files = append(files, arg)
 			continue
 		}
@@ -1052,6 +1128,7 @@ func getExpectedLength(algorithm string) int {
 	}
 }
 
+// FindConfigFile searches standard locations for a configuration file.
 func FindConfigFile() string {
 	locations := []string{
 		"./.hashi.toml",

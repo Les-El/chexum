@@ -39,53 +39,61 @@ func TestNewComputer(t *testing.T) {
 	}
 }
 
+func TestAlgorithm(t *testing.T) {
+	alg := AlgorithmSHA256
+	c, _ := NewComputer(alg)
+	if c.Algorithm() != alg {
+		t.Errorf("Algorithm() = %v, want %v", c.Algorithm(), alg)
+	}
+}
+
+var computeBytesTests = []struct {
+	name      string
+	algorithm string
+	data      []byte
+	want      string
+}{
+	{
+		"sha256 empty",
+		AlgorithmSHA256,
+		[]byte{},
+		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	},
+	{
+		"sha256 hello",
+		AlgorithmSHA256,
+		[]byte("hello"),
+		"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+	},
+	{
+		"md5 empty",
+		AlgorithmMD5,
+		[]byte{},
+		"d41d8cd98f00b204e9800998ecf8427e",
+	},
+	{
+		"md5 hello",
+		AlgorithmMD5,
+		[]byte("hello"),
+		"5d41402abc4b2a76b9719d911017c592",
+	},
+	{
+		"blake2b empty",
+		AlgorithmBLAKE2b,
+		[]byte{},
+		"786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce",
+	},
+	{
+		"blake2b hello",
+		AlgorithmBLAKE2b,
+		[]byte("hello"),
+		"e4cfa39a3d37be31c59609e807970799caa68a19bfaa15135f165085e01d41a65ba1e1b146aeb6bd0092b49eac214c103ccfa3a365954bbbe52f74a2b3620c94",
+	},
+}
+
 // TestComputeBytes tests hash computation for byte slices.
 func TestComputeBytes(t *testing.T) {
-	tests := []struct {
-		name      string
-		algorithm string
-		data      []byte
-		want      string
-	}{
-		{
-			"sha256 empty",
-			AlgorithmSHA256,
-			[]byte{},
-			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-		},
-		{
-			"sha256 hello",
-			AlgorithmSHA256,
-			[]byte("hello"),
-			"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-		},
-		{
-			"md5 empty",
-			AlgorithmMD5,
-			[]byte{},
-			"d41d8cd98f00b204e9800998ecf8427e",
-		},
-		{
-			"md5 hello",
-			AlgorithmMD5,
-			[]byte("hello"),
-			"5d41402abc4b2a76b9719d911017c592",
-		},
-		{
-			"blake2b empty",
-			AlgorithmBLAKE2b,
-			[]byte{},
-			"786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce",
-		},
-		{
-			"blake2b hello",
-			AlgorithmBLAKE2b,
-			[]byte("hello"),
-			"e4cfa39a3d37be31c59609e807970799caa68a19bfaa15135f165085e01d41a65ba1e1b146aeb6bd0092b49eac214c103ccfa3a365954bbbe52f74a2b3620c94",
-		},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range computeBytesTests {
 		t.Run(tt.name, func(t *testing.T) {
 			c, err := NewComputer(tt.algorithm)
 			if err != nil {
@@ -177,6 +185,22 @@ func TestComputeFile_NotFound(t *testing.T) {
 	}
 }
 
+func TestComputeReader_Error(t *testing.T) {
+	c, _ := NewComputer(AlgorithmSHA256)
+	// Create a reader that fails
+	errReader := &errorReader{}
+	_, err := c.ComputeReader(errReader)
+	if err == nil {
+		t.Error("Expected error from ComputeReader")
+	}
+}
+
+type errorReader struct{}
+
+func (e *errorReader) Read(p []byte) (n int, err error) {
+	return 0, os.ErrPermission
+}
+
 // TestIsValidHash tests hash validation.
 func TestIsValidHash(t *testing.T) {
 	tests := []struct {
@@ -194,6 +218,7 @@ func TestIsValidHash(t *testing.T) {
 		{"invalid chars", "g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", AlgorithmSHA256, false},
 		{"uppercase valid", "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855", AlgorithmSHA256, true},
 		{"invalid algorithm", "abc123", "invalid", false},
+		{"unknown algorithm", "abc123", "unknown", false},
 	}
 
 	for _, tt := range tests {
@@ -286,59 +311,59 @@ func TestComputeBytes_ConsistentLength(t *testing.T) {
 // Property 27: Hash algorithm detection validates hex characters
 // **Validates: Requirements 21.1**
 func TestDetectHashAlgorithm_HexValidation(t *testing.T) {
-	f := func(s string) bool {
-		algorithms := DetectHashAlgorithm(s)
-		
-		// If algorithms were detected, the string must be valid hex
-		if len(algorithms) > 0 {
-			// Check that string contains only hex characters
-			for _, c := range s {
-				if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-					return false // Invalid hex character found but algorithms detected
-				}
-			}
-			// Also check that length matches expected algorithm lengths
-			validLengths := []int{32, 40, 64, 128}
-			validLength := false
-			for _, length := range validLengths {
-				if len(s) == length {
-					validLength = true
-					break
-				}
-			}
-			if !validLength {
-				return false // Invalid length but algorithms detected
-			}
-		}
-		
-		// If no algorithms detected, either invalid hex or invalid length
-		if len(algorithms) == 0 {
-			// Check if it's invalid hex
-			hasInvalidHex := false
-			for _, c := range s {
-				if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-					hasInvalidHex = true
-					break
-				}
-			}
-			
-			// If it has valid hex but no algorithms, it must be wrong length
-			if !hasInvalidHex {
-				validLengths := []int{32, 40, 64, 128}
-				for _, length := range validLengths {
-					if len(s) == length {
-						return false // Valid hex and valid length but no algorithms detected
-					}
-				}
-			}
-		}
-		
-		return true
-	}
-
-	if err := quick.Check(f, nil); err != nil {
+	if err := quick.Check(verifyHexValidationProperty, nil); err != nil {
 		t.Error(err)
 	}
+}
+
+func verifyHexValidationProperty(s string) bool {
+	algorithms := DetectHashAlgorithm(s)
+
+	// If algorithms were detected, the string must be valid hex
+	if len(algorithms) > 0 {
+		// Check that string contains only hex characters
+		for _, c := range s {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+				return false // Invalid hex character found but algorithms detected
+			}
+		}
+		// Also check that length matches expected algorithm lengths
+		validLengths := []int{32, 40, 64, 128}
+		validLength := false
+		for _, length := range validLengths {
+			if len(s) == length {
+				validLength = true
+				break
+			}
+		}
+		if !validLength {
+			return false // Invalid length but algorithms detected
+		}
+	}
+
+	// If no algorithms detected, either invalid hex or invalid length
+	if len(algorithms) == 0 {
+		// Check if it's invalid hex
+		hasInvalidHex := false
+		for _, c := range s {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+				hasInvalidHex = true
+				break
+			}
+		}
+
+		// If it has valid hex but no algorithms, it must be wrong length
+		if !hasInvalidHex {
+			validLengths := []int{32, 40, 64, 128}
+			for _, length := range validLengths {
+				if len(s) == length {
+					return false // Valid hex and valid length but no algorithms detected
+				}
+			}
+		}
+	}
+
+	return true
 }
 
 // Property 28: Hash algorithm detection identifies correct algorithms by length
@@ -359,56 +384,18 @@ func TestDetectHashAlgorithm_AlgorithmIdentification(t *testing.T) {
 			return true // Skip invalid lengths
 		}
 		
-		// Create a hex string of the specified length
-		hexString := ""
-		for i := 0; i < length; i++ {
-			// Use modulo to cycle through hex characters
-			if len(hexChars) == 0 {
-				hexString += "0" // Default to '0' if no hex chars provided
-			} else {
-				char := hexChars[i%len(hexChars)]
-				// Ensure it's a valid hex character
-				if (char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F') {
-					hexString += string(char)
-				} else {
-					hexString += "0" // Default to '0' for invalid chars
-				}
-			}
-		}
-		
+		hexString := buildHexString(length, hexChars)
 		algorithms := DetectHashAlgorithm(hexString)
-		
-		// Check that the returned algorithms match expected
-		if len(algorithms) != len(expectedAlgorithms) {
-			return false
-		}
-		
-		// Check that all expected algorithms are present
-		for _, expected := range expectedAlgorithms {
-			found := false
-			for _, actual := range algorithms {
-				if actual == expected {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return false
-			}
-		}
-		
-		return true
+		return verifyAlgorithmsMatch(algorithms, expectedAlgorithms)
 	}
 
 	// Custom generator for valid lengths and hex characters
 	config := &quick.Config{
 		Values: func(values []reflect.Value, rand *rand.Rand) {
-			// Generate a valid length
 			validLengths := []int{32, 40, 64, 128}
 			length := validLengths[rand.Intn(len(validLengths))]
 			values[0] = reflect.ValueOf(length)
 			
-			// Generate some hex characters
 			hexChars := "0123456789abcdefABCDEF"
 			numChars := rand.Intn(10) + 1 // 1-10 characters
 			chars := make([]byte, numChars)
@@ -424,47 +411,83 @@ func TestDetectHashAlgorithm_AlgorithmIdentification(t *testing.T) {
 	}
 }
 
+func buildHexString(length int, hexChars []byte) string {
+	hexString := ""
+	for i := 0; i < length; i++ {
+		if len(hexChars) == 0 {
+			hexString += "0"
+		} else {
+			char := hexChars[i%len(hexChars)]
+			if (char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F') {
+				hexString += string(char)
+			} else {
+				hexString += "0"
+			}
+		}
+	}
+	return hexString
+}
+
+func verifyAlgorithmsMatch(actual, expected []string) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	for _, e := range expected {
+		found := false
+		for _, a := range actual {
+			if a == e {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+var detectHashAlgorithmTests = []struct {
+	name     string
+	hashStr  string
+	expected []string
+}{
+	// Valid hex strings of each length
+	{"valid md5", "d41d8cd98f00b204e9800998ecf8427e", []string{AlgorithmMD5}},
+	{"valid sha1", "da39a3ee5e6b4b0d3255bfef95601890afd80709", []string{AlgorithmSHA1}},
+	{"valid sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{AlgorithmSHA256}},
+	{"valid sha512", "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", []string{AlgorithmSHA512, AlgorithmBLAKE2b}},
+	{"valid blake2b (same length as sha512)", "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce", []string{AlgorithmSHA512, AlgorithmBLAKE2b}},
+	
+	// Uppercase should work
+	{"uppercase md5", "D41D8CD98F00B204E9800998ECF8427E", []string{AlgorithmMD5}},
+	{"uppercase sha256", "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855", []string{AlgorithmSHA256}},
+	
+	// Mixed case should work
+	{"mixed case sha1", "Da39A3ee5E6b4B0d3255BfeF95601890aFd80709", []string{AlgorithmSHA1}},
+	
+	// Invalid hex characters
+	{"invalid hex chars", "g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{}},
+	{"invalid hex with space", "e3b0c442 8fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{}},
+	{"invalid hex with dash", "e3b0c442-98fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{}},
+	
+	// Wrong lengths
+	{"too short", "abc123", []string{}},
+	{"too long", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855aa", []string{}},
+	{"wrong length 16", "1234567890abcdef", []string{}},
+	{"wrong length 48", "123456789012345678901234567890123456789012345678", []string{}},
+	
+	// Edge cases
+	{"empty string", "", []string{}},
+	{"single char", "a", []string{}},
+	{"all zeros md5", "00000000000000000000000000000000", []string{AlgorithmMD5}},
+	{"all zeros sha256", "0000000000000000000000000000000000000000000000000000000000000000", []string{AlgorithmSHA256}},
+	{"all f's sha512", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", []string{AlgorithmSHA512, AlgorithmBLAKE2b}},
+}
+
 // TestDetectHashAlgorithm tests hash algorithm detection with specific cases.
 func TestDetectHashAlgorithm(t *testing.T) {
-	tests := []struct {
-		name     string
-		hashStr  string
-		expected []string
-	}{
-		// Valid hex strings of each length
-		{"valid md5", "d41d8cd98f00b204e9800998ecf8427e", []string{AlgorithmMD5}},
-		{"valid sha1", "da39a3ee5e6b4b0d3255bfef95601890afd80709", []string{AlgorithmSHA1}},
-		{"valid sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{AlgorithmSHA256}},
-		{"valid sha512", "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", []string{AlgorithmSHA512, AlgorithmBLAKE2b}},
-		{"valid blake2b (same length as sha512)", "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce", []string{AlgorithmSHA512, AlgorithmBLAKE2b}},
-		
-		// Uppercase should work
-		{"uppercase md5", "D41D8CD98F00B204E9800998ECF8427E", []string{AlgorithmMD5}},
-		{"uppercase sha256", "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855", []string{AlgorithmSHA256}},
-		
-		// Mixed case should work
-		{"mixed case sha1", "Da39A3ee5E6b4B0d3255BfeF95601890aFd80709", []string{AlgorithmSHA1}},
-		
-		// Invalid hex characters
-		{"invalid hex chars", "g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{}},
-		{"invalid hex with space", "e3b0c442 8fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{}},
-		{"invalid hex with dash", "e3b0c442-98fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{}},
-		
-		// Wrong lengths
-		{"too short", "abc123", []string{}},
-		{"too long", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855aa", []string{}},
-		{"wrong length 16", "1234567890abcdef", []string{}},
-		{"wrong length 48", "123456789012345678901234567890123456789012345678", []string{}},
-		
-		// Edge cases
-		{"empty string", "", []string{}},
-		{"single char", "a", []string{}},
-		{"all zeros md5", "00000000000000000000000000000000", []string{AlgorithmMD5}},
-		{"all zeros sha256", "0000000000000000000000000000000000000000000000000000000000000000", []string{AlgorithmSHA256}},
-		{"all f's sha512", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", []string{AlgorithmSHA512, AlgorithmBLAKE2b}},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range detectHashAlgorithmTests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := DetectHashAlgorithm(tt.hashStr)
 			

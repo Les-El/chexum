@@ -50,58 +50,63 @@ func DefaultOptions() *Options {
 
 // NewBar creates a new progress bar with the given options.
 func NewBar(opts *Options) *Bar {
-	if opts == nil {
-		opts = DefaultOptions()
-	}
-
-	if opts.Threshold == 0 {
-		opts.Threshold = 100 * time.Millisecond
-	}
-
-	if opts.Writer == nil {
-		opts.Writer = os.Stderr
-	}
-
-	// Check if output is a TTY
-	isTTY := false
-	if f, ok := opts.Writer.(*os.File); ok {
-		isTTY = term.IsTerminal(int(f.Fd()))
-	}
+	opts = ensureDefaults(opts)
+	isTTY := checkTTY(opts.Writer)
 
 	b := &Bar{
 		total:     opts.Total,
 		startTime: time.Now(),
 		isTTY:     isTTY,
-		enabled:   false, // Will be enabled after threshold
+		enabled:   false,
 		threshold: opts.Threshold,
 	}
 
-	// Only create the actual progress bar if we're on a TTY
 	if isTTY {
-		barOpts := []progressbar.Option{
-			progressbar.OptionSetDescription(opts.Description),
-			progressbar.OptionSetWriter(opts.Writer),
-			progressbar.OptionShowCount(),
-			progressbar.OptionShowIts(),
-			progressbar.OptionSetPredictTime(true),
-			progressbar.OptionClearOnFinish(),
-			progressbar.OptionSetTheme(progressbar.Theme{
-				Saucer:        "█",
-				SaucerHead:    "█",
-				SaucerPadding: "░",
-				BarStart:      "[",
-				BarEnd:        "]",
-			}),
-		}
-
-		if opts.ShowBytes {
-			barOpts = append(barOpts, progressbar.OptionShowBytes(true))
-		}
-
-		b.bar = progressbar.NewOptions64(opts.Total, barOpts...)
+		b.bar = progressbar.NewOptions64(opts.Total, configureBar(opts)...)
 	}
-
 	return b
+}
+
+func ensureDefaults(opts *Options) *Options {
+	if opts == nil {
+		opts = DefaultOptions()
+	}
+	if opts.Threshold == 0 {
+		opts.Threshold = 100 * time.Millisecond
+	}
+	if opts.Writer == nil {
+		opts.Writer = os.Stderr
+	}
+	return opts
+}
+
+func checkTTY(w io.Writer) bool {
+	if f, ok := w.(*os.File); ok {
+		return term.IsTerminal(int(f.Fd()))
+	}
+	return false
+}
+
+func configureBar(opts *Options) []progressbar.Option {
+	barOpts := []progressbar.Option{
+		progressbar.OptionSetDescription(opts.Description),
+		progressbar.OptionSetWriter(opts.Writer),
+		progressbar.OptionShowCount(),
+		progressbar.OptionShowIts(),
+		progressbar.OptionSetPredictTime(true),
+		progressbar.OptionClearOnFinish(),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "█",
+			SaucerHead:    "█",
+			SaucerPadding: "░",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+	}
+	if opts.ShowBytes {
+		barOpts = append(barOpts, progressbar.OptionShowBytes(true))
+	}
+	return barOpts
 }
 
 // Add increments the progress by n.

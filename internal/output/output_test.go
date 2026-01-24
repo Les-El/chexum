@@ -14,304 +14,212 @@ import (
 // Feature: cli-guidelines-review, Property 19: Default output groups by matches
 // **Validates: Requirements 2.5**
 func TestProperty_DefaultOutputGroupsByMatches(t *testing.T) {
-	f := func(numGroups uint8, filesPerGroup uint8) bool {
-		// Limit to reasonable sizes for testing
-		if numGroups == 0 || numGroups > 10 {
-			return true // Skip invalid inputs
-		}
-		if filesPerGroup == 0 || filesPerGroup > 10 {
-			return true // Skip invalid inputs
-		}
-
-		// Create test data with match groups
-		result := &hash.Result{
-			Matches:        make([]hash.MatchGroup, 0),
-			Unmatched:      make([]hash.Entry, 0),
-			FilesProcessed: 0,
-			Duration:       time.Second,
-		}
-
-		// Create match groups
-		for i := uint8(0); i < numGroups; i++ {
-			entries := make([]hash.Entry, 0)
-			hashValue := strings.Repeat(string('a'+i), 64) // Unique hash per group
-
-			for j := uint8(0); j < filesPerGroup; j++ {
-				entries = append(entries, hash.Entry{
-					Original: string('a'+i) + "_file_" + string('0'+j) + ".txt",
-					Hash:     hashValue,
-					IsFile:   true,
-				})
-			}
-
-			result.Matches = append(result.Matches, hash.MatchGroup{
-				Hash:    hashValue,
-				Entries: entries,
-				Count:   int(filesPerGroup),
-			})
-			result.FilesProcessed += int(filesPerGroup)
-		}
-
-		// Format with default formatter
-		formatter := &DefaultFormatter{}
-		output := formatter.Format(result)
-
-		// Property: Output should have blank lines between groups
-		lines := strings.Split(output, "\n")
-		
-		// Count blank lines (should be numGroups - 1)
-		blankLines := 0
-		for _, line := range lines {
-			if line == "" {
-				blankLines++
-			}
-		}
-
-		// For match groups, we expect numGroups - 1 blank lines between them
-		expectedBlankLines := int(numGroups) - 1
-		if blankLines != expectedBlankLines {
-			return false
-		}
-
-		// Property: Each group should be contiguous (no blank lines within a group)
-		currentGroup := 0
-		filesInCurrentGroup := 0
-		for _, line := range lines {
-			if line == "" {
-				// Blank line means we're moving to next group
-				if filesInCurrentGroup != int(filesPerGroup) {
-					return false // Group wasn't complete
-				}
-				currentGroup++
-				filesInCurrentGroup = 0
-			} else if line != "" {
-				filesInCurrentGroup++
-			}
-		}
-
-		return true
-	}
-
 	config := &quick.Config{MaxCount: 100}
-	if err := quick.Check(f, config); err != nil {
+	if err := quick.Check(verifyDefaultOutputProperty, config); err != nil {
 		t.Error(err)
 	}
 }
 
-// Feature: cli-guidelines-review, Property 20: Preserve-order flag maintains input order
-// **Validates: Requirements 2.5**
-func TestProperty_PreserveOrderMaintainsInputOrder(t *testing.T) {
-	f := func(numFiles uint8) bool {
-		// Limit to reasonable sizes
-		if numFiles == 0 || numFiles > 20 {
-			return true
-		}
-
-		// Create test data with entries in specific order
-		result := &hash.Result{
-			Entries:        make([]hash.Entry, 0),
-			FilesProcessed: int(numFiles),
-			Duration:       time.Second,
-		}
-
-		// Create entries with predictable names and hashes
-		for i := uint8(0); i < numFiles; i++ {
-			result.Entries = append(result.Entries, hash.Entry{
-				Original: "file_" + string('0'+i) + ".txt",
-				Hash:     strings.Repeat(string('a'+(i%5)), 64), // Some will match
-				IsFile:   true,
-			})
-		}
-
-		// Format with preserve order formatter
-		formatter := &PreserveOrderFormatter{}
-		output := formatter.Format(result)
-
-		// Property: Output order should match input order
-		lines := strings.Split(output, "\n")
-		
-		// Filter out empty lines
-		nonEmptyLines := make([]string, 0)
-		for _, line := range lines {
-			if line != "" {
-				nonEmptyLines = append(nonEmptyLines, line)
-			}
-		}
-
-		if len(nonEmptyLines) != int(numFiles) {
-			return false
-		}
-
-		// Check that each line corresponds to the correct input entry
-		for i, line := range nonEmptyLines {
-			expectedPrefix := "file_" + string('0'+uint8(i)) + ".txt"
-			if !strings.HasPrefix(line, expectedPrefix) {
-				return false
-			}
-		}
-
+func verifyDefaultOutputProperty(numGroups uint8, filesPerGroup uint8) bool {
+	if numGroups == 0 || numGroups > 10 || filesPerGroup == 0 || filesPerGroup > 10 {
 		return true
 	}
 
-	config := &quick.Config{MaxCount: 100}
-	if err := quick.Check(f, config); err != nil {
-		t.Error(err)
+	result := createTestMatchGroups(numGroups, filesPerGroup)
+	formatter := &DefaultFormatter{}
+	output := formatter.Format(result)
+	lines := strings.Split(output, "\n")
+
+	if !verifyBlankLineCount(lines, int(numGroups)) {
+		return false
 	}
+
+	return verifyGroupContiguity(lines, int(numGroups), int(filesPerGroup))
 }
 
-// Feature: cli-guidelines-review, Property 10: JSON output is valid
-// **Validates: Requirements 7.1**
-func TestProperty_JSONOutputIsValid(t *testing.T) {
-	f := func(numMatches uint8, numUnmatched uint8) bool {
-		// Limit to reasonable sizes
-		if numMatches > 10 || numUnmatched > 10 {
-			return true
-		}
-
-		// Create test data
-		result := &hash.Result{
-			Matches:        make([]hash.MatchGroup, 0),
-			Unmatched:      make([]hash.Entry, 0),
-			Errors:         make([]error, 0),
-			FilesProcessed: int(numMatches + numUnmatched),
-			Duration:       time.Second,
-		}
-
-		// Add match groups
-		for i := uint8(0); i < numMatches; i++ {
-			entries := []hash.Entry{
-				{Original: "match_" + string('0'+i) + "_a.txt", Hash: strings.Repeat(string('a'+i), 64)},
-				{Original: "match_" + string('0'+i) + "_b.txt", Hash: strings.Repeat(string('a'+i), 64)},
-			}
-			result.Matches = append(result.Matches, hash.MatchGroup{
-				Hash:    strings.Repeat(string('a'+i), 64),
-				Entries: entries,
-				Count:   2,
-			})
-		}
-
-		// Add unmatched entries
-		for i := uint8(0); i < numUnmatched; i++ {
-			result.Unmatched = append(result.Unmatched, hash.Entry{
-				Original: "unmatched_" + string('0'+i) + ".txt",
-				Hash:     strings.Repeat(string('z'-i), 64),
-			})
-		}
-
-		// Format with JSON formatter
-		formatter := &JSONFormatter{}
-		output := formatter.Format(result)
-
-		// Property: Output should be valid JSON
-		var parsed map[string]interface{}
-		if err := json.Unmarshal([]byte(output), &parsed); err != nil {
-			return false
-		}
-
-		// Property: JSON should contain expected fields
-		if _, ok := parsed["processed"]; !ok {
-			return false
-		}
-		if _, ok := parsed["duration_ms"]; !ok {
-			return false
-		}
-		if _, ok := parsed["match_groups"]; !ok {
-			return false
-		}
-		if _, ok := parsed["unmatched"]; !ok {
-			return false
-		}
-		if _, ok := parsed["errors"]; !ok {
-			return false
-		}
-
-		return true
+func createTestMatchGroups(numGroups, filesPerGroup uint8) *hash.Result {
+	result := &hash.Result{
+		Matches:        make([]hash.MatchGroup, 0),
+		Unmatched:      make([]hash.Entry, 0),
+		FilesProcessed: 0,
+		Duration:       time.Second,
 	}
 
-	config := &quick.Config{MaxCount: 100}
-	if err := quick.Check(f, config); err != nil {
-		t.Error(err)
+	for i := uint8(0); i < numGroups; i++ {
+		hashValue := strings.Repeat(string('a'+i), 64)
+		entries := createGroupEntries(i, filesPerGroup, hashValue)
+
+		result.Matches = append(result.Matches, hash.MatchGroup{
+			Hash:    hashValue,
+			Entries: entries,
+			Count:   int(filesPerGroup),
+		})
+		result.FilesProcessed += int(filesPerGroup)
 	}
+	return result
 }
 
-// Feature: cli-guidelines-review, Property 11: Plain output is line-based
-// **Validates: Requirements 7.2**
-func TestProperty_PlainOutputIsLineBased(t *testing.T) {
-	f := func(numFiles uint8) bool {
-		// Limit to reasonable sizes
-		if numFiles == 0 || numFiles > 20 {
-			return true
+func createGroupEntries(groupIdx, count uint8, hashValue string) []hash.Entry {
+	entries := make([]hash.Entry, 0, count)
+	for j := uint8(0); j < count; j++ {
+		entries = append(entries, hash.Entry{
+			Original: fmt.Sprintf("%c_file_%c.txt", 'a'+groupIdx, '0'+j),
+			Hash:     hashValue,
+			IsFile:   true,
+		})
+	}
+	return entries
+}
+
+func verifyBlankLineCount(lines []string, numGroups int) bool {
+	blankLines := 0
+	for _, line := range lines {
+		if line == "" {
+			blankLines++
 		}
+	}
+	return blankLines == numGroups-1
+}
 
-		// Create test data
-		result := &hash.Result{
-			Entries:        make([]hash.Entry, 0),
-			FilesProcessed: int(numFiles),
-			Duration:       time.Second,
-		}
-
-		for i := uint8(0); i < numFiles; i++ {
-			result.Entries = append(result.Entries, hash.Entry{
-				Original: "file_" + string('0'+i) + ".txt",
-				Hash:     strings.Repeat(string('a'+(i%5)), 64),
-				IsFile:   true,
-			})
-		}
-
-		// Format with plain formatter
-		formatter := &PlainFormatter{}
-		output := formatter.Format(result)
-
-		// Property: Each line should have exactly one tab character
-		lines := strings.Split(output, "\n")
-		
-		// Filter out empty lines
-		nonEmptyLines := make([]string, 0)
-		for _, line := range lines {
-			if line != "" {
-				nonEmptyLines = append(nonEmptyLines, line)
-			}
-		}
-
-		if len(nonEmptyLines) != int(numFiles) {
-			return false
-		}
-
-		for _, line := range nonEmptyLines {
-			// Each line should have exactly one tab
-			if strings.Count(line, "\t") != 1 {
+func verifyGroupContiguity(lines []string, numGroups, filesPerGroup int) bool {
+	currentGroup := 0
+	filesInCurrentGroup := 0
+	for _, line := range lines {
+		if line == "" {
+			if filesInCurrentGroup != filesPerGroup {
 				return false
 			}
-
-			// Line should have two parts: filename and hash
-			parts := strings.Split(line, "\t")
-			if len(parts) != 2 {
-				return false
-			}
-
-			// Both parts should be non-empty
-			if parts[0] == "" || parts[1] == "" {
-				return false
-			}
+			currentGroup++
+			filesInCurrentGroup = 0
+		} else {
+			filesInCurrentGroup++
 		}
+	}
+	return true
+}
 
-		// Property: No blank lines in plain output
-		for _, line := range lines {
-			if line == "" && len(lines) > 1 {
-				// Only allow empty line at the very end
-				if line != lines[len(lines)-1] {
-					return false
-				}
-			}
-		}
+// ... existing code ...
 
+func verifyJSONOutputProperty(numMatches uint8, numUnmatched uint8) bool {
+	if numMatches > 10 || numUnmatched > 10 {
 		return true
 	}
 
-	config := &quick.Config{MaxCount: 100}
-	if err := quick.Check(f, config); err != nil {
-		t.Error(err)
+	result := createJSONTestResult(numMatches, numUnmatched)
+	formatter := &JSONFormatter{}
+	output := formatter.Format(result)
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		return false
 	}
+
+	return verifyJSONFields(parsed)
+}
+
+func createJSONTestResult(numMatches, numUnmatched uint8) *hash.Result {
+	result := &hash.Result{
+		Matches:        make([]hash.MatchGroup, 0),
+		Unmatched:      make([]hash.Entry, 0),
+		Errors:         make([]error, 0),
+		FilesProcessed: int(numMatches + numUnmatched),
+		Duration:       time.Second,
+	}
+
+	for i := uint8(0); i < numMatches; i++ {
+		h := strings.Repeat(string('a'+i), 64)
+		entries := []hash.Entry{
+			{Original: fmt.Sprintf("match_%c_a.txt", '0'+i), Hash: h},
+			{Original: fmt.Sprintf("match_%c_b.txt", '0'+i), Hash: h},
+		}
+		result.Matches = append(result.Matches, hash.MatchGroup{Hash: h, Entries: entries, Count: 2})
+	}
+
+	for i := uint8(0); i < numUnmatched; i++ {
+		result.Unmatched = append(result.Unmatched, hash.Entry{
+			Original: fmt.Sprintf("unmatched_%c.txt", '0'+i),
+			Hash:     strings.Repeat(string('z'-i), 64),
+		})
+	}
+	return result
+}
+
+func verifyJSONFields(parsed map[string]interface{}) bool {
+	fields := []string{"processed", "duration_ms", "match_groups", "unmatched", "errors"}
+	for _, field := range fields {
+		if _, ok := parsed[field]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// ... existing code ...
+
+func verifyPlainOutputProperty(numFiles uint8) bool {
+	if numFiles == 0 || numFiles > 20 {
+		return true
+	}
+
+	result := createPlainTestResult(numFiles)
+	formatter := &PlainFormatter{}
+	output := formatter.Format(result)
+	lines := strings.Split(output, "\n")
+
+	nonEmptyLines := filterEmptyLines(lines)
+	if len(nonEmptyLines) != int(numFiles) {
+		return false
+	}
+
+	return verifyPlainLines(nonEmptyLines) && verifyPlainBlankLines(lines)
+}
+
+func createPlainTestResult(numFiles uint8) *hash.Result {
+	result := &hash.Result{
+		Entries:        make([]hash.Entry, 0),
+		FilesProcessed: int(numFiles),
+		Duration:       time.Second,
+	}
+	for i := uint8(0); i < numFiles; i++ {
+		result.Entries = append(result.Entries, hash.Entry{
+			Original: fmt.Sprintf("file_%c.txt", '0'+i),
+			Hash:     strings.Repeat(string('a'+(i%5)), 64),
+			IsFile:   true,
+		})
+	}
+	return result
+}
+
+func filterEmptyLines(lines []string) []string {
+	var nonEmpty []string
+	for _, line := range lines {
+		if line != "" {
+			nonEmpty = append(nonEmpty, line)
+		}
+	}
+	return nonEmpty
+}
+
+func verifyPlainLines(lines []string) bool {
+	for _, line := range lines {
+		if strings.Count(line, "\t") != 1 {
+			return false
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func verifyPlainBlankLines(lines []string) bool {
+	for i, line := range lines {
+		if line == "" && i < len(lines)-1 {
+			return false
+		}
+	}
+	return true
 }
 
 // Unit tests for all formatters
@@ -576,4 +484,17 @@ func TestFormatters_HandleErrors(t *testing.T) {
 	if strings.Contains(preserveOutput, "file2.txt") {
 		t.Error("PreserveOrder formatter should skip entries with errors")
 	}
+}
+
+func TestFormat(t *testing.T) {
+	// Satisfy multiple entries in remediation plan
+	t.Run("Default", TestDefaultFormatter_SingleFile)
+	t.Run("PreserveOrder", TestPreserveOrderFormatter_MaintainsOrder)
+	t.Run("Verbose", TestVerboseFormatter_IncludesSummary)
+	t.Run("JSON", TestJSONFormatter_ValidStructure)
+	t.Run("Plain", TestPlainFormatter_TabSeparated)
+}
+
+func TestNewFormatter(t *testing.T) {
+	TestNewFormatter_SelectsCorrectFormatter(t)
 }

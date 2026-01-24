@@ -6,15 +6,14 @@ I'm an intuitive CLI tool for hashing. I hope I can help!
 
 ## AI Declaration
 
-I was 100% written by AI. hashi began development on the Kiro IDE, using Claude for planning and coding. Work later moved Visual Studio Code, where Gemini CLI finished most of the work. 
+I was 100% written by AI. The hashi project began development on the Kiro IDE, using Claude for planning and coding. Delevlopment work was a mix of Kiro, and Gemini CLI via VS Code. 
 
 ## Features
 
-- **Human-first design**: Clear, colorized output with progress indicators
-- **Multiple output formats**: Default (grouped), verbose, JSON, and plain (for scripting)
-- **Flexible input**: Files, directories, stdin, and hash strings
-- **Robust error handling**: User-friendly messages with actionable suggestions
-- **Script-friendly**: Meaningful exit codes and quiet mode for automation
+- **Human-first design**: I aim to be intuitative and easy to use. I offer colorized output, progress. indicators on long batches, and helpful error messages
+- **Multiple output formats**: You can ask me show results on the screen in a number of different ways. At the same time I can save reports in different formats to multiple file types (plain, verbose, JSON, csv, etc.)
+- **Flexible input**: I try to offer a forgiving syntax without brittle flag order requirements. I also easily accepts arguemts as files, directories, or a text manafest of files and directories. 
+- **Script-friendly**: I'll give your scripts meaningful exit codes, a granular quiet mode, and lots of ways to easily return a bool. 
 
 ## Installation 
 

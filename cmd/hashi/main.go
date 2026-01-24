@@ -31,60 +31,61 @@ import (
 )
 
 func main() {
-	// Set up signal handling for graceful Ctrl-C interruption
-	sigHandler := signals.NewSignalHandler(func() {
-		// Cleanup function - called on first Ctrl-C
-		// Note: The main cleanup (streams) is handled by defer in main,
-		// but this callback is for immediate signal response if needed.
-	})
+	os.Exit(run())
+}
+
+func run() int {
+	// Set up signal handling
+	sigHandler := signals.NewSignalHandler(nil)
 	sigHandler.Start()
+	defer sigHandler.Stop()
 
-	// Initialize color handler for TTY-aware output
 	colorHandler := color.NewColorHandler()
-
-	// Initialize error handler
 	errHandler := errors.NewErrorHandler(colorHandler)
 
-	// Parse command-line arguments
+	// 1. Parse arguments
 	cfg, warnings, err := config.ParseArgs(os.Args[1:])
 	if err != nil {
-		// Streams are not initialized yet, so we use standard stderr
 		fmt.Fprintln(os.Stderr, errHandler.FormatError(err))
-		os.Exit(config.ExitInvalidArgs)
+		return config.ExitInvalidArgs
 	}
 
-	// Initialize Global Split Streams (Stdout=Data, Stderr=Context)
+	// 2. Initialize streams
 	streams, cleanup, err := console.InitStreams(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing I/O: %v\n", err)
-		os.Exit(config.ExitInvalidArgs)
+		return config.ExitInvalidArgs
 	}
 	defer cleanup()
 
-	// Display any warnings from conflict resolution (Context -> Stderr)
 	if len(warnings) > 0 {
 		fmt.Fprint(streams.Err, conflict.FormatAllWarnings(warnings))
 	}
 
-	// Handle help flag (User requested info -> Stdout)
+	// 3. Handle basic flags
 	if cfg.ShowHelp {
 		fmt.Fprintln(streams.Out, config.HelpText())
-		os.Exit(config.ExitSuccess)
+		return config.ExitSuccess
 	}
-
-	// Handle version flag (User requested info -> Stdout)
 	if cfg.ShowVersion {
 		fmt.Fprintln(streams.Out, config.VersionText())
-		os.Exit(config.ExitSuccess)
+		return config.ExitSuccess
 	}
 
-	// 4. Handle stdin file list expansion
+	// 4. Discover and validate files
+	if err := prepareFiles(cfg, errHandler, streams); err != nil {
+		return errors.DetermineDiscoveryExitCode(err)
+	}
+
+	// 5. Select and execute mode
+	return executeMode(cfg, colorHandler, streams, errHandler)
+}
+
+func prepareFiles(cfg *config.Config, errHandler *errors.Handler, streams *console.Streams) error {
 	if cfg.HasStdinMarker() {
 		cfg.Files = expandStdinFiles(cfg.Files)
 	}
 
-	// 5. Discover/Expand files based on paths and options
-	// We skip discovery if we are ONLY validating hash strings (no files provided)
 	if len(cfg.Files) > 0 || len(cfg.Hashes) == 0 {
 		discOpts := hash.DiscoveryOptions{
 			Recursive:      cfg.Recursive,
@@ -99,135 +100,115 @@ func main() {
 		discovered, err := hash.DiscoverFiles(cfg.Files, discOpts)
 		if err != nil {
 			fmt.Fprintln(streams.Err, errHandler.FormatError(err))
-			os.Exit(errors.DetermineDiscoveryExitCode(err))
+			return err
 		}
 		cfg.Files = discovered
 	}
+	return nil
+}
 
-	// Determine operation mode based on arguments
-	
-	// Edge case handling for file + hash comparison mode (Requirements 25.4, 25.5, 25.6)
+func executeMode(cfg *config.Config, colorHandler *color.Handler, streams *console.Streams, errHandler *errors.Handler) int {
+	// Edge case validation
 	if len(cfg.Hashes) > 0 {
-		// Check for multiple files with hash strings
 		if len(cfg.Files) > 1 {
-			fmt.Fprintln(streams.Err, errHandler.FormatError(
-				fmt.Errorf("Cannot compare multiple files with hash strings. Use one file at a time.")))
-			os.Exit(config.ExitInvalidArgs)
+			fmt.Fprintln(streams.Err, errHandler.FormatError(fmt.Errorf("Cannot compare multiple files with hash strings")))
+			return config.ExitInvalidArgs
 		}
-		
-		// Check for stdin marker with hash strings
 		if cfg.HasStdinMarker() {
-			fmt.Fprintln(streams.Err, errHandler.FormatError(
-				fmt.Errorf("Cannot use stdin input with hash comparison")))
-			os.Exit(config.ExitInvalidArgs)
+			fmt.Fprintln(streams.Err, errHandler.FormatError(fmt.Errorf("Cannot use stdin input with hash comparison")))
+			return config.ExitInvalidArgs
 		}
 	}
-	
+
 	if len(cfg.Files) == 0 && len(cfg.Hashes) > 0 {
-		// Hash validation mode: no files, only hash strings
-		exitCode := runHashValidationMode(cfg, colorHandler, streams)
-		os.Exit(exitCode)
+		return runHashValidationMode(cfg, colorHandler, streams)
 	}
-
 	if len(cfg.Files) == 1 && len(cfg.Hashes) == 1 {
-		// File + hash comparison mode: one file, one hash string
-		exitCode := runFileHashComparisonMode(cfg, colorHandler, streams)
-		os.Exit(exitCode)
+		return runFileHashComparisonMode(cfg, colorHandler, streams)
 	}
-
-	// Standard file processing mode
 	if len(cfg.Files) > 0 {
-		exitCode := runStandardHashingMode(cfg, colorHandler, streams, errHandler)
-		os.Exit(exitCode)
+		return runStandardHashingMode(cfg, colorHandler, streams, errHandler)
 	}
 
-	os.Exit(config.ExitSuccess)
+	return config.ExitSuccess
 }
 
 // runStandardHashingMode processes multiple files, computing hashes and formatting output.
 func runStandardHashingMode(cfg *config.Config, colorHandler *color.Handler, streams *console.Streams, errHandler *errors.Handler) int {
-	// 1. Initialize hash computer
 	computer, err := hash.NewComputer(cfg.Algorithm)
 	if err != nil {
 		fmt.Fprintln(streams.Err, errHandler.FormatError(err))
 		return config.ExitInvalidArgs
 	}
 
-	// 2. Initialize progress bar if needed
-	var bar *progress.Bar
-	if !cfg.Quiet && !cfg.Bool {
-		bar = progress.NewBar(&progress.Options{
-			Total:       int64(len(cfg.Files)),
-			Description: "Hashing files...",
-			Writer:      streams.Err, // Progress goes to Context (stderr)
-		})
+	results := &hash.Result{Entries: make([]hash.Entry, 0, len(cfg.Files))}
+	bar := setupProgressBar(cfg, streams)
+	if bar != nil {
 		defer bar.Finish()
 	}
 
-	results := &hash.Result{
-		Entries: make([]hash.Entry, 0, len(cfg.Files)),
-	}
-
 	start := time.Now()
-
-	// 3. Process files
 	for _, path := range cfg.Files {
-		entry, err := computer.ComputeFile(path)
-		if err != nil {
-			results.Errors = append(results.Errors, err)
-			results.Entries = append(results.Entries, hash.Entry{
-				Original: path,
-				Error:    err,
-			})
-			if !cfg.Quiet {
-				// Don't let error messages overwrite progress bar if possible
-				if bar != nil && bar.IsEnabled() {
-					fmt.Fprint(streams.Err, "\r\033[K") // Clear line
-				}
-				fmt.Fprintln(streams.Err, errHandler.FormatError(err))
-			}
-		} else {
-			results.Entries = append(results.Entries, *entry)
-			results.FilesProcessed++
-			results.BytesProcessed += entry.Size
-		}
-
-		if bar != nil {
-			bar.Increment()
-		}
+		processFile(path, computer, results, bar, cfg, streams, errHandler)
 	}
-
 	results.Duration = time.Since(start)
 
-	// 4. Group results for default output
 	results.Matches, results.Unmatched = groupResults(results.Entries)
+	outputResults(results, cfg, streams)
 
-	// 5. Format and output results (Data -> Stdout)
-	if cfg.Bool {
-		success := false
-		if cfg.MatchRequired {
-			success = len(results.Matches) > 0
-		} else {
-			// All files must match (one group, zero unmatched)
-			// Special case for single file: always true if no errors
-			if len(results.Entries) == 1 && len(results.Errors) == 0 {
-				success = true
-			} else {
-				success = len(results.Matches) == 1 && len(results.Unmatched) == 0
+	return errors.DetermineExitCode(cfg, results)
+}
+
+func setupProgressBar(cfg *config.Config, streams *console.Streams) *progress.Bar {
+	if !cfg.Quiet && !cfg.Bool {
+		return progress.NewBar(&progress.Options{
+			Total:       int64(len(cfg.Files)),
+			Description: "Hashing files...",
+			Writer:      streams.Err,
+		})
+	}
+	return nil
+}
+
+func processFile(path string, computer *hash.Computer, results *hash.Result, bar *progress.Bar, cfg *config.Config, streams *console.Streams, errHandler *errors.Handler) {
+	entry, err := computer.ComputeFile(path)
+	if err != nil {
+		results.Errors = append(results.Errors, err)
+		results.Entries = append(results.Entries, hash.Entry{Original: path, Error: err})
+		if !cfg.Quiet {
+			if bar != nil && bar.IsEnabled() {
+				fmt.Fprint(streams.Err, "\r\033[K")
 			}
+			fmt.Fprintln(streams.Err, errHandler.FormatError(err))
 		}
-		if success {
-			fmt.Fprintln(streams.Out, "true")
-		} else {
-			fmt.Fprintln(streams.Out, "false")
-		}
+	} else {
+		results.Entries = append(results.Entries, *entry)
+		results.FilesProcessed++
+		results.BytesProcessed += entry.Size
+	}
+	if bar != nil {
+		bar.Increment()
+	}
+}
+
+func outputResults(results *hash.Result, cfg *config.Config, streams *console.Streams) {
+	if cfg.Bool {
+		success := isSuccess(results, cfg)
+		fmt.Fprintln(streams.Out, success)
 	} else if !cfg.Quiet {
 		formatter := output.NewFormatter(cfg.OutputFormat, cfg.PreserveOrder)
 		fmt.Fprintln(streams.Out, formatter.Format(results))
 	}
+}
 
-	// 6. Determine exit code
-	return errors.DetermineExitCode(cfg, results)
+func isSuccess(results *hash.Result, cfg *config.Config) bool {
+	if cfg.MatchRequired {
+		return len(results.Matches) > 0
+	}
+	if len(results.Entries) == 1 && len(results.Errors) == 0 {
+		return true
+	}
+	return len(results.Matches) == 1 && len(results.Unmatched) == 0
 }
 
 // groupResults categorizes entries into matches and unique hashes.
@@ -262,42 +243,44 @@ func groupResults(entries []hash.Entry) ([]hash.MatchGroup, []hash.Entry) {
 // Requirements: 24.1, 24.2, 24.3
 func runHashValidationMode(cfg *config.Config, colorHandler *color.Handler, streams *console.Streams) int {
 	allValid := true
-	
 	for _, hashStr := range cfg.Hashes {
-		// Detect possible algorithms for this hash string
-		algorithms := hash.DetectHashAlgorithm(hashStr)
-		
-		if len(algorithms) == 0 {
-			// Invalid hash format
+		if !validateHash(hashStr, cfg, colorHandler, streams) {
 			allValid = false
-			if !cfg.Quiet {
-				// Context/Error -> Stderr
-				fmt.Fprintf(streams.Err, "%s %s - Invalid hash format\n", 
-					colorHandler.Red("✗"), hashStr)
-				fmt.Fprintf(streams.Err, "  Hash strings must contain only hexadecimal characters (0-9, a-f, A-F)\n")
-				fmt.Fprintf(streams.Err, "  and have a valid length (8, 32, 40, 64, or 128 characters)\n")
-			}
-		} else {
-			// Valid hash format
-			if !cfg.Quiet {
-				// Context/Info -> Stderr
-				fmt.Fprintf(streams.Err, "%s %s - Valid hash\n", 
-					colorHandler.Green("✓"), hashStr)
-				
-				if len(algorithms) == 1 {
-					fmt.Fprintf(streams.Err, "  Algorithm: %s\n", algorithms[0])
-				} else {
-					fmt.Fprintf(streams.Err, "  Possible algorithms: %s\n", formatAlgorithmList(algorithms))
-				}
-			}
 		}
 	}
-	
-	// Exit with appropriate code
+
 	if allValid {
 		return config.ExitSuccess
-	} else {
-		return config.ExitInvalidArgs
+	}
+	return config.ExitInvalidArgs
+}
+
+func validateHash(hashStr string, cfg *config.Config, colorHandler *color.Handler, streams *console.Streams) bool {
+	algorithms := hash.DetectHashAlgorithm(hashStr)
+	if len(algorithms) == 0 {
+		reportInvalidHash(hashStr, cfg, colorHandler, streams)
+		return false
+	}
+
+	reportValidHash(hashStr, algorithms, cfg, colorHandler, streams)
+	return true
+}
+
+func reportInvalidHash(hashStr string, cfg *config.Config, colorHandler *color.Handler, streams *console.Streams) {
+	if !cfg.Quiet {
+		fmt.Fprintf(streams.Err, "%s %s - Invalid hash format\n", colorHandler.Red("✗"), hashStr)
+		fmt.Fprintf(streams.Err, "  Hash strings must contain only hexadecimal characters and have a valid length.\n")
+	}
+}
+
+func reportValidHash(hashStr string, algorithms []string, cfg *config.Config, colorHandler *color.Handler, streams *console.Streams) {
+	if !cfg.Quiet {
+		fmt.Fprintf(streams.Err, "%s %s - Valid hash\n", colorHandler.Green("✓"), hashStr)
+		if len(algorithms) == 1 {
+			fmt.Fprintf(streams.Err, "  Algorithm: %s\n", algorithms[0])
+		} else {
+			fmt.Fprintf(streams.Err, "  Possible algorithms: %s\n", formatAlgorithmList(algorithms))
+		}
 	}
 }
 
@@ -329,63 +312,52 @@ func formatAlgorithmList(algorithms []string) string {
 // Requirements: 25.1, 25.2, 25.3
 func runFileHashComparisonMode(cfg *config.Config, colorHandler *color.Handler, streams *console.Streams) int {
 	filePath := cfg.Files[0]
-	expectedHash := cfg.Hashes[0] // Already normalized to lowercase by ClassifyArguments
-	
-	// Create hash computer
+	expectedHash := cfg.Hashes[0]
+
 	computer, err := hash.NewComputer(cfg.Algorithm)
 	if err != nil {
-		if !cfg.Quiet {
-			fmt.Fprintf(streams.Err, "%s Failed to initialize hash computer: %v\n", 
-				colorHandler.Red("✗"), err)
-		}
+		handleComparisonError(err, "Failed to initialize hash computer", cfg, colorHandler, streams)
 		return config.ExitInvalidArgs
 	}
-	
-	// Compute file hash
+
 	entry, err := computer.ComputeFile(filePath)
 	if err != nil {
-		if !cfg.Quiet {
-			fmt.Fprintf(streams.Err, "%s Failed to compute hash for %s: %v\n", 
-				colorHandler.Red("✗"), filePath, err)
-		}
-		// Return appropriate exit code based on error type
-		if os.IsNotExist(err) {
-			return config.ExitFileNotFound
-		}
-		if os.IsPermission(err) {
-			return config.ExitPermissionErr
-		}
-		return config.ExitPartialFailure
+		handleComparisonError(err, fmt.Sprintf("Failed to compute hash for %s", filePath), cfg, colorHandler, streams)
+		return errors.DetermineDiscoveryExitCode(err)
 	}
-	
-	// Compare hashes (case-insensitive)
-	computedHash := strings.ToLower(entry.Hash)
-	expectedHashLower := strings.ToLower(expectedHash)
-	
-	if computedHash == expectedHashLower {
-		// Hashes match
-		if cfg.Bool {
-			// Boolean output mode: just output "true" -> Data (Stdout)
-			fmt.Fprintln(streams.Out, "true")
-		} else if !cfg.Quiet {
-			// Regular output: display PASS -> Data (Stdout)
-			fmt.Fprintf(streams.Out, "%s %s\n", colorHandler.Green("PASS"), filePath)
-		}
+
+	match := strings.EqualFold(entry.Hash, expectedHash)
+	outputComparisonResult(match, filePath, expectedHash, entry.Hash, cfg, colorHandler, streams)
+
+	if match {
 		return config.ExitSuccess
+	}
+	return config.ExitNoMatches
+}
+
+func handleComparisonError(err error, msg string, cfg *config.Config, colorHandler *color.Handler, streams *console.Streams) {
+	if !cfg.Quiet {
+		fmt.Fprintf(streams.Err, "%s %s: %v\n", colorHandler.Red("✗"), msg, err)
+	}
+}
+
+func outputComparisonResult(match bool, filePath, expected, computed string, cfg *config.Config, colorHandler *color.Handler, streams *console.Streams) {
+	if cfg.Bool {
+		fmt.Fprintln(streams.Out, match)
+		return
+	}
+	if cfg.Quiet {
+		return
+	}
+
+	if match {
+		fmt.Fprintf(streams.Out, "%s %s\n", colorHandler.Green("PASS"), filePath)
 	} else {
-		// Hashes don't match
-		if cfg.Bool {
-			// Boolean output mode: just output "false" -> Data (Stdout)
-			fmt.Fprintln(streams.Out, "false")
-		} else if !cfg.Quiet {
-			// Regular output: display FAIL -> Data (Stdout)
-			fmt.Fprintf(streams.Out, "%s %s\n", colorHandler.Red("FAIL"), filePath)
-			fmt.Fprintf(streams.Out, "  Expected: %s\n", expectedHash)
-			fmt.Fprintf(streams.Out, "  Computed: %s\n", entry.Hash)
-		}
-				return config.ExitNoMatches // Exit code 1 for mismatch
-			}
-		}
+		fmt.Fprintf(streams.Out, "%s %s\n", colorHandler.Red("FAIL"), filePath)
+		fmt.Fprintf(streams.Out, "  Expected: %s\n", expected)
+		fmt.Fprintf(streams.Out, "  Computed: %s\n", computed)
+	}
+}
 		
 		// expandStdinFiles reads file paths from stdin and adds them to the file list.
 		func expandStdinFiles(files []string) []string {

@@ -2,6 +2,18 @@
 
 This directory contains user-facing documentation for hashi. The documentation is organized to provide both quick reference and comprehensive guidance.
 
+## Quick Reference: Flags
+
+| Flag | Description |
+|------|-------------|
+| `--recursive`, `-r` | Process directories recursively |
+| `--hidden` | Include hidden files |
+| `--verbose`, `-v` | Enable verbose output |
+| `--quiet`, `-q` | Suppress stdout |
+| `--log-file` | File for logging |
+| `--log-json` | File for JSON logging |
+| `--output`, `-o` | Write output to file |
+
 ## Current Documentation
 
 - **[examples.md](examples.md)** - Usage examples and common patterns
