@@ -25,8 +25,6 @@ func TestDependencyAnalyzer_Analyze(t *testing.T) {
 
 	ctx := context.Background()
 
-
-
 	// Analyze currently just calls AssessDependencies which looks for go.mod
 
 	_, err := analyzer.Analyze(ctx, "../../")
@@ -39,15 +37,11 @@ func TestDependencyAnalyzer_Analyze(t *testing.T) {
 
 }
 
-
-
 func TestDependencyAnalyzer_AssessDependencies(t *testing.T) {
 
 	analyzer := NewDependencyAnalyzer()
 
 	ctx := context.Background()
-
-
 
 	// In the real environment, go.mod should exist.
 

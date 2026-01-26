@@ -35,7 +35,7 @@ func (r *Reporter) GenerateJSONReport() (string, error) {
 		Issues:       r.issues,
 		FlagStatuses: r.flagStatuses,
 	}
-	
+
 	bytes, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return "", err
@@ -47,13 +47,13 @@ func (r *Reporter) GenerateJSONReport() (string, error) {
 func (r *Reporter) GenerateCSVReport() (string, error) {
 	var sb strings.Builder
 	writer := csv.NewWriter(&sb)
-	
+
 	// Header
 	header := []string{"Status", "ID", "Category", "Severity", "Priority", "Title", "Location", "Effort", "Description", "Suggestion"}
 	if err := writer.Write(header); err != nil {
 		return "", err
 	}
-	
+
 	for _, issue := range r.issues {
 		row := []string{
 			string(issue.Status),
@@ -71,7 +71,7 @@ func (r *Reporter) GenerateCSVReport() (string, error) {
 			return "", err
 		}
 	}
-	
+
 	writer.Flush()
 	return sb.String(), nil
 }
@@ -130,7 +130,7 @@ func (r *Reporter) GenerateStatusDashboard() (string, error) {
 	sb.WriteString("| Category | Count | Status |\n")
 	sb.WriteString("|----------|-------|--------|\n")
 
-categories := []IssueCategory{CodeQuality, Documentation, Testing, Security, Performance, Usability}
+	categories := []IssueCategory{CodeQuality, Documentation, Testing, Security, Performance, Usability}
 	for _, cat := range categories {
 		count := r.countByCategory(cat)
 		status := "✅ Good"
@@ -150,7 +150,7 @@ categories := []IssueCategory{CodeQuality, Documentation, Testing, Security, Per
 func (r *Reporter) GenerateOnboardingGuide() (string, error) {
 	var sb strings.Builder
 	sb.WriteString("# Developer Onboarding Guide\n\n")
-	
+
 	sb.WriteString("## Prerequisites\n\n")
 	sb.WriteString("- Go 1.24 or higher\n")
 	sb.WriteString("- Git\n")
@@ -242,21 +242,32 @@ func (r *Reporter) SortIssues() {
 
 func (r *Reporter) priorityValue(p Priority) int {
 	switch p {
-	case P0: return 0
-	case P1: return 1
-	case P2: return 2
-	case P3: return 3
-	default: return 4
+	case P0:
+		return 0
+	case P1:
+		return 1
+	case P2:
+		return 2
+	case P3:
+		return 3
+	default:
+		return 4
 	}
 }
 
 func (r *Reporter) severityValue(s Severity) int {
 	switch s {
-	case Critical: return 0
-	case High: return 1
-	case Medium: return 2
-	case Low: return 3
-	case Info: return 4
-	default: return 5
+	case Critical:
+		return 0
+	case High:
+		return 1
+	case Medium:
+		return 2
+	case Low:
+		return 3
+	case Info:
+		return 4
+	default:
+		return 5
 	}
 }

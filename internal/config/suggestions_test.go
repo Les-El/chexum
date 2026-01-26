@@ -33,7 +33,7 @@ func TestParseArgs_Suggestions(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	
+
 	if !strings.Contains(err.Error(), "Did you mean --verbose?") {
 		t.Errorf("expected suggestion in error, got: %v", err)
 	}

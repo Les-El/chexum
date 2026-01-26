@@ -378,12 +378,12 @@ func TestDetectHashAlgorithm_AlgorithmIdentification(t *testing.T) {
 			64:  {AlgorithmSHA256},
 			128: {AlgorithmSHA512, AlgorithmBLAKE2b},
 		}
-		
+
 		expectedAlgorithms, isValidLength := validLengths[length]
 		if !isValidLength {
 			return true // Skip invalid lengths
 		}
-		
+
 		hexString := buildHexString(length, hexChars)
 		algorithms := DetectHashAlgorithm(hexString)
 		return verifyAlgorithmsMatch(algorithms, expectedAlgorithms)
@@ -395,7 +395,7 @@ func TestDetectHashAlgorithm_AlgorithmIdentification(t *testing.T) {
 			validLengths := []int{32, 40, 64, 128}
 			length := validLengths[rand.Intn(len(validLengths))]
 			values[0] = reflect.ValueOf(length)
-			
+
 			hexChars := "0123456789abcdefABCDEF"
 			numChars := rand.Intn(10) + 1 // 1-10 characters
 			chars := make([]byte, numChars)
@@ -458,25 +458,25 @@ var detectHashAlgorithmTests = []struct {
 	{"valid sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{AlgorithmSHA256}},
 	{"valid sha512", "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", []string{AlgorithmSHA512, AlgorithmBLAKE2b}},
 	{"valid blake2b (same length as sha512)", "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce", []string{AlgorithmSHA512, AlgorithmBLAKE2b}},
-	
+
 	// Uppercase should work
 	{"uppercase md5", "D41D8CD98F00B204E9800998ECF8427E", []string{AlgorithmMD5}},
 	{"uppercase sha256", "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855", []string{AlgorithmSHA256}},
-	
+
 	// Mixed case should work
 	{"mixed case sha1", "Da39A3ee5E6b4B0d3255BfeF95601890aFd80709", []string{AlgorithmSHA1}},
-	
+
 	// Invalid hex characters
 	{"invalid hex chars", "g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{}},
 	{"invalid hex with space", "e3b0c442 8fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{}},
 	{"invalid hex with dash", "e3b0c442-98fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{}},
-	
+
 	// Wrong lengths
 	{"too short", "abc123", []string{}},
 	{"too long", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855aa", []string{}},
 	{"wrong length 16", "1234567890abcdef", []string{}},
 	{"wrong length 48", "123456789012345678901234567890123456789012345678", []string{}},
-	
+
 	// Edge cases
 	{"empty string", "", []string{}},
 	{"single char", "a", []string{}},
@@ -490,14 +490,14 @@ func TestDetectHashAlgorithm(t *testing.T) {
 	for _, tt := range detectHashAlgorithmTests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := DetectHashAlgorithm(tt.hashStr)
-			
+
 			// Check length matches
 			if len(got) != len(tt.expected) {
 				t.Errorf("DetectHashAlgorithm() returned %d algorithms, expected %d", len(got), len(tt.expected))
 				t.Errorf("Got: %v, Expected: %v", got, tt.expected)
 				return
 			}
-			
+
 			// Check all expected algorithms are present
 			for _, expected := range tt.expected {
 				found := false

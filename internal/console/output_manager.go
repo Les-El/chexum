@@ -1,4 +1,15 @@
 // Package console handles the output streams and file management.
+//
+// DESIGN PRINCIPLE: Atomic Safety
+// ------------------------------
+// When writing to files, there is a risk of data corruption if the process
+// is interrupted (e.g., Ctrl-C, power loss). Hashi avoids this through
+// "Atomic Writes".
+//
+// We never write directly to the target file. Instead, we write to a hidden
+// ".tmp" file and perform an atomic "Rename" on Close(). This ensures that the
+// original file is either completely updated or remains untouched—never
+// half-written.
 package console
 
 import (
@@ -31,6 +42,7 @@ func NewOutputManager(cfg *config.Config, in io.Reader) *OutputManager {
 
 // OpenOutputFile opens a file for output with safety checks.
 // It handles overwrite protection, append mode, and directory creation.
+// For non-append mode, it uses atomic writes (temp file + rename on close).
 func (m *OutputManager) OpenOutputFile(path string, appendMode bool, force bool) (io.WriteCloser, error) {
 	if path == "" {
 		return nil, nil
@@ -55,23 +67,47 @@ func (m *OutputManager) OpenOutputFile(path string, appendMode bool, force bool)
 		return nil, config.FileSystemError(m.cfg.Verbose, fmt.Sprintf("failed to create directory for %s: %v", path, err))
 	}
 
-	// 3. Determine flags
-	flags := os.O_CREATE | os.O_WRONLY
 	if appendMode {
-		flags |= os.O_APPEND
-	} else {
-		flags |= os.O_TRUNC
+		// Standard append mode
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return nil, config.HandleFileWriteError(err, m.cfg.Verbose, path)
+		}
+		return f, nil
 	}
 
-	// 4. Open file
-	// Note: Atomic writes (temp file + rename) will be enhanced in Task 42.
-	// For now, we use standard file opening but wrapped in a helper.
-	f, err := os.OpenFile(path, flags, 0644)
+	// 3. Atomic write (temp file + rename)
+	tempPath := path + ".tmp"
+	f, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		return nil, config.HandleFileWriteError(err, m.cfg.Verbose, path)
+		return nil, config.HandleFileWriteError(err, m.cfg.Verbose, tempPath)
 	}
 
-	return f, nil
+	return &atomicWriter{f: f, path: path, tempPath: tempPath}, nil
+}
+
+type atomicWriter struct {
+	f        *os.File
+	path     string
+	tempPath string
+}
+
+// Write writes data to the underlying file.
+func (w *atomicWriter) Write(p []byte) (n int, err error) {
+	return w.f.Write(p)
+}
+
+// Close closes the file and renames it to the target path.
+func (w *atomicWriter) Close() error {
+	if err := w.f.Close(); err != nil {
+		os.Remove(w.tempPath)
+		return err
+	}
+	if err := os.Rename(w.tempPath, w.path); err != nil {
+		os.Remove(w.tempPath)
+		return err
+	}
+	return nil
 }
 
 // isInteractive checks if the input is a terminal.

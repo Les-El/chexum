@@ -19,12 +19,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Les-El/hashi/internal/checkpoint"
 	"github.com/Les-El/hashi/internal/color"
 	"github.com/Les-El/hashi/internal/config"
 	"github.com/Les-El/hashi/internal/conflict"
 	"github.com/Les-El/hashi/internal/console"
 	"github.com/Les-El/hashi/internal/errors"
 	"github.com/Les-El/hashi/internal/hash"
+	"github.com/Les-El/hashi/internal/manifest"
 	"github.com/Les-El/hashi/internal/output"
 	"github.com/Les-El/hashi/internal/progress"
 	"github.com/Les-El/hashi/internal/signals"
@@ -49,6 +51,8 @@ func run() int {
 		fmt.Fprintln(os.Stderr, errHandler.FormatError(err))
 		return config.ExitInvalidArgs
 	}
+
+	performProactiveCleanup(cfg)
 
 	// 2. Initialize streams
 	streams, cleanup, err := console.InitStreams(cfg)
@@ -81,6 +85,20 @@ func run() int {
 	return executeMode(cfg, colorHandler, streams, errHandler)
 }
 
+func performProactiveCleanup(cfg *config.Config) {
+	// Proactive resource management: Cleanup temporary files if tmpfs is getting full.
+	// We do this after parsing args so we can respect cfg.Quiet.
+	if os.Getenv("HASHI_SKIP_CLEANUP") == "" {
+		cleanupMgr := checkpoint.NewCleanupManager(false)
+		if needsCleanup, usage := cleanupMgr.CheckTmpfsUsage(85.0); needsCleanup {
+			if !cfg.Quiet {
+				fmt.Fprintf(os.Stderr, "Notice: Tmpfs usage is %.1f%%. Cleaning up temporary files...\n", usage)
+			}
+			cleanupMgr.CleanupTemporaryFiles()
+		}
+	}
+}
+
 func prepareFiles(cfg *config.Config, errHandler *errors.Handler, streams *console.Streams) error {
 	if cfg.HasStdinMarker() {
 		cfg.Files = expandStdinFiles(cfg.Files)
@@ -104,6 +122,25 @@ func prepareFiles(cfg *config.Config, errHandler *errors.Handler, streams *conso
 		}
 		cfg.Files = discovered
 	}
+
+	// Handle incremental operations
+	if cfg.OnlyChanged && cfg.Manifest != "" {
+		m, err := manifest.Load(cfg.Manifest)
+		if err != nil {
+			fmt.Fprintf(streams.Err, "Warning: Failed to load manifest: %v\n", err)
+		} else {
+			changed, err := m.GetChangedFiles(cfg.Files)
+			if err != nil {
+				fmt.Fprintf(streams.Err, "Warning: Failed to detect changes: %v\n", err)
+			} else {
+				if !cfg.Quiet && cfg.Verbose {
+					fmt.Fprintf(streams.Err, "Incremental: %d of %d files changed\n", len(changed), len(cfg.Files))
+				}
+				cfg.Files = changed
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -122,6 +159,9 @@ func executeMode(cfg *config.Config, colorHandler *color.Handler, streams *conso
 
 	if len(cfg.Files) == 0 && len(cfg.Hashes) > 0 {
 		return runHashValidationMode(cfg, colorHandler, streams)
+	}
+	if cfg.DryRun {
+		return runDryRunMode(cfg, colorHandler, streams)
 	}
 	if len(cfg.Files) == 1 && len(cfg.Hashes) == 1 {
 		return runFileHashComparisonMode(cfg, colorHandler, streams)
@@ -155,6 +195,16 @@ func runStandardHashingMode(cfg *config.Config, colorHandler *color.Handler, str
 
 	results.Matches, results.Unmatched = groupResults(results.Entries)
 	outputResults(results, cfg, streams)
+
+	// Save manifest if requested
+	if cfg.OutputManifest != "" {
+		m := manifest.New(cfg.Algorithm, results.Entries)
+		if err := manifest.Save(m, cfg.OutputManifest); err != nil {
+			fmt.Fprintf(streams.Err, "Error saving manifest: %v\n", errHandler.FormatError(err))
+		} else if !cfg.Quiet {
+			fmt.Fprintf(streams.Err, "Manifest saved to: %s\n", cfg.OutputManifest)
+		}
+	}
 
 	return errors.DetermineExitCode(cfg, results)
 }
@@ -292,7 +342,7 @@ func formatAlgorithmList(algorithms []string) string {
 	if len(algorithms) == 1 {
 		return algorithms[0]
 	}
-	
+
 	result := ""
 	for i, alg := range algorithms {
 		if i > 0 {
@@ -358,27 +408,85 @@ func outputComparisonResult(match bool, filePath, expected, computed string, cfg
 		fmt.Fprintf(streams.Out, "  Computed: %s\n", computed)
 	}
 }
-		
-		// expandStdinFiles reads file paths from stdin and adds them to the file list.
-		func expandStdinFiles(files []string) []string {
-			var result []string
-			
-			// Remove the "-" marker
-			for _, f := range files {
-				if f != "-" {
-					result = append(result, f)
-				}
-			}
-			
-			// Read from stdin
-			scanner := bufio.NewScanner(os.Stdin)
-			for scanner.Scan() {
-				path := strings.TrimSpace(scanner.Text())
-				if path != "" {
-					result = append(result, path)
-				}
-			}
-			
-			return result
+
+// expandStdinFiles reads file paths from stdin and adds them to the file list.
+func expandStdinFiles(files []string) []string {
+	var result []string
+
+	// Remove the "-" marker
+	for _, f := range files {
+		if f != "-" {
+			result = append(result, f)
 		}
-		
+	}
+
+	// Read from stdin
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		path := strings.TrimSpace(scanner.Text())
+		if path != "" {
+			result = append(result, path)
+		}
+	}
+
+	return result
+}
+
+// runDryRunMode enumerates files and displays a preview without hashing.
+func runDryRunMode(cfg *config.Config, colorHandler *color.Handler, streams *console.Streams) int {
+	if !cfg.Quiet {
+		fmt.Fprintf(streams.Err, "Dry Run: Previewing files that would be processed\n\n")
+	}
+
+	var totalSize int64
+	fileCount := 0
+
+	for _, path := range cfg.Files {
+		info, err := os.Stat(path)
+		if err != nil {
+			if !cfg.Quiet {
+				fmt.Fprintf(streams.Err, "%s %s: %v\n", colorHandler.Red("✗"), path, err)
+			}
+			continue
+		}
+
+		if !info.IsDir() {
+			if !cfg.Quiet {
+				fmt.Fprintf(streams.Out, "%s    (estimated size: %s)\n", path, formatSize(info.Size()))
+			}
+			totalSize += info.Size()
+			fileCount++
+		}
+	}
+
+	if !cfg.Quiet {
+		fmt.Fprintf(streams.Err, "\nSummary:\n")
+		fmt.Fprintf(streams.Err, "  Files to process: %d\n", fileCount)
+		fmt.Fprintf(streams.Err, "  Aggregate size:   %s\n", formatSize(totalSize))
+		fmt.Fprintf(streams.Err, "  Estimated time:   %s\n", estimateTime(totalSize))
+	}
+
+	return config.ExitSuccess
+}
+
+func formatSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
+func estimateTime(size int64) string {
+	// Very rough estimation: 100MB/s hashing speed
+	seconds := float64(size) / (100 * 1024 * 1024)
+	if seconds < 1 {
+		return "< 1s"
+	}
+	return time.Duration(seconds * float64(time.Second)).Round(time.Second).String()
+}

@@ -278,7 +278,7 @@ func TestDefaultFormatter_ManyMatches(t *testing.T) {
 	}
 
 	output := formatter.Format(result)
-	
+
 	// Should have blank line between groups
 	if !strings.Contains(output, "\n\n") {
 		t.Error("Expected blank line between match groups")
@@ -486,6 +486,29 @@ func TestFormatters_HandleErrors(t *testing.T) {
 	}
 }
 
+func TestJSONLFormatter(t *testing.T) {
+	formatter := &JSONLFormatter{}
+	result := &hash.Result{
+		Entries: []hash.Entry{
+			{Original: "file1.txt", Hash: "hash1", Error: nil},
+			{Original: "file2.txt", Hash: "", Error: fmt.Errorf("fail")},
+		},
+	}
+
+	output := formatter.Format(result)
+	lines := strings.Split(output, "\n")
+	if len(lines) != 2 {
+		t.Errorf("Expected 2 lines, got %d", len(lines))
+	}
+
+	if !strings.Contains(lines[0], `"status":"success"`) {
+		t.Error("Expected success status in first line")
+	}
+	if !strings.Contains(lines[1], `"status":"error"`) {
+		t.Error("Expected error status in second line")
+	}
+}
+
 func TestFormat(t *testing.T) {
 	// Satisfy multiple entries in remediation plan
 	t.Run("Default", TestDefaultFormatter_SingleFile)
@@ -493,6 +516,7 @@ func TestFormat(t *testing.T) {
 	t.Run("Verbose", TestVerboseFormatter_IncludesSummary)
 	t.Run("JSON", TestJSONFormatter_ValidStructure)
 	t.Run("Plain", TestPlainFormatter_TabSeparated)
+	t.Run("JSONL", TestJSONLFormatter)
 }
 
 func TestNewFormatter(t *testing.T) {

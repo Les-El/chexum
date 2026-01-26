@@ -162,8 +162,14 @@ hashi d41d8cd98f00b204e9800998ecf8427e
 # Recursively hash a directory
 hashi -r /path/to/dir
 
-# Output as JSON
+# Output as JSON with audit trail
 hashi --json *.txt
+
+# Stream large datasets as JSONL
+hashi --jsonl -r /large/directory
+
+# Pipe JSONL into jq for processing
+hashi --jsonl *.txt | jq '.hash'
 ```
 
 ## Configuration
@@ -196,7 +202,7 @@ Settings are applied in the following order (highest to lowest):
 | `DEBUG` | Enable debug logging |
 | `HASHI_CONFIG` | Path to a specific config file |
 | `HASHI_ALGORITHM` | Default algorithm (sha256, md5, sha1, sha512, blake2b) |
-| `HASHI_OUTPUT_FORMAT` | Default format (default, verbose, json, plain) |
+| `HASHI_OUTPUT_FORMAT` | Default format (default, verbose, json, jsonl, plain) |
 | `HASHI_RECURSIVE` | Enable recursion by default (true/false) |
 | `HASHI_HIDDEN` | Include hidden files by default (true/false) |
 | `HASHI_BLACKLIST_FILES` | Comma-separated patterns to block from output |
@@ -241,23 +247,61 @@ file3.jpg    9876543210abcdef9876543210abcdef9876543210abcdef9876543210abcdef
 
 ### JSON (`--json`)
 
+Structured output with metadata envelope for complete operation audit:
+
 ```json
 {
-  "processed": 4,
-  "duration_ms": 234,
-  "match_groups": [
+  "hashi": {
+    "version": "1.2.0",
+    "command": "hashi --recursive --json --algorithm=sha256 *.txt",
+    "start_time": "2024-01-15T10:30:00Z",
+    "end_time": "2024-01-15T10:30:05Z"
+  },
+  "results": [
     {
+      "type": "file",
+      "name": "file1.txt",
       "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "count": 2,
-      "files": ["file1.txt", "file4.pdf"]
+      "status": "success",
+      "meta": {
+        "size_bytes": 1024,
+        "mtime": "2024-01-15T09:15:00Z",
+        "permissions": "644"
+      },
+      "timestamp": "2024-01-15T10:30:01Z"
+    },
+    {
+      "type": "file",
+      "name": "file2.txt",
+      "hash": "a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890",
+      "status": "success",
+      "meta": {
+        "size_bytes": 2048,
+        "mtime": "2024-01-15T09:20:00Z",
+        "permissions": "644"
+      },
+      "timestamp": "2024-01-15T10:30:02Z"
     }
-  ],
-  "unmatched": [
-    {"file": "file2.doc", "hash": "a1b2c3d4..."},
-    {"file": "file3.jpg", "hash": "9876543210..."}
-  ],
-  "errors": []
+  ]
 }
+```
+
+### JSONL (`--jsonl`)
+
+Line-delimited JSON for streaming and high-performance processing:
+
+```jsonl
+{"type":"file","name":"file1.txt","hash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","status":"success","meta":{"size_bytes":1024,"mtime":"2024-01-15T09:15:00Z","permissions":"644"},"timestamp":"2024-01-15T10:30:01Z"}
+{"type":"file","name":"file2.txt","hash":"a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890","status":"success","meta":{"size_bytes":2048,"mtime":"2024-01-15T09:20:00Z","permissions":"644"},"timestamp":"2024-01-15T10:30:02Z"}
+```
+
+Perfect for piping into `jq` or other line-based tools:
+```bash
+# Count successful hashes
+hashi --jsonl *.txt | jq -s 'map(select(.status == "success")) | length'
+
+# Extract just filenames and hashes
+hashi --jsonl *.txt | jq -r '"\(.name)\t\(.hash)"'
 ```
 
 ### Plain (`--plain`)
@@ -280,6 +324,32 @@ file2.doc	a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890
 | 4 | File not found |
 | 5 | Permission denied |
 | 130 | Interrupted (Ctrl-C) |
+
+## Development and Quality
+
+### Running Tests
+To run the full test suite, including property-based and integration tests:
+```bash
+go test -v ./...
+```
+
+### Checkpoint System
+`hashi` includes an internal quality analysis engine called "Checkpoint". It validates code standards, documentation, and test coverage.
+```bash
+# Build and run the checkpoint tool
+go build -o checkpoint ./cmd/checkpoint
+./checkpoint
+```
+Reports are generated in the `major_checkpoint/` directory, organized by snapshots.
+
+### Cleanup Utility
+A cleanup utility is provided to manage temporary files and build artifacts.
+```bash
+# Build and run the cleanup tool
+go build -o cleanup ./cmd/cleanup
+./cleanup --help
+```
+`hashi` also performs proactive cleanup when tmpfs usage is high.
 
 ## Dependencies
 

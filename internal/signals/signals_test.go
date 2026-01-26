@@ -26,26 +26,26 @@ func TestPropertyInterruptedOperationsLeaveRecoverableState(t *testing.T) {
 func verifyRecoverableStateProperty(cleanupDuration uint8) bool {
 	cleanupTime := time.Duration(cleanupDuration) * time.Millisecond
 	tracker := &cleanupTracker{}
-	
+
 	handler := NewSignalHandler(tracker.runWithDuration(cleanupTime))
 	handler.SetCleanupTimeout(500 * time.Millisecond)
-	
+
 	exitCalled := false
 	handler.exitFunc = func(code int) { exitCalled = true }
-	
+
 	handler.Start()
 	defer handler.Stop()
 	handler.handleInterrupt()
-	
+
 	if !tracker.didStart() || !handler.IsInterrupted() || !exitCalled {
 		return false
 	}
-	
+
 	handler.Reset()
 	if handler.IsInterrupted() {
 		return false
 	}
-	
+
 	if cleanupTime < 500*time.Millisecond && !tracker.didFinish() {
 		return false
 	}

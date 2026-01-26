@@ -1,10 +1,18 @@
 // Package output provides formatters for hashi output.
 //
-// It supports multiple output formats:
-// - default: Groups files by matching hash with blank lines between groups
-// - verbose: Detailed output with summaries and statistics
-// - json: Machine-readable JSON format
-// - plain: Tab-separated format for scripting (grep/awk/cut)
+// DESIGN PRINCIPLE: Human-First, Machine-Ready
+// -------------------------------------------
+// Hashi believes that output should be immediately scannable by a human eye
+// while remaining robust enough for machine consumption.
+//
+// 1. DEFAULT FORMAT: Prioritizes duplication detection by grouping identical
+//    hashes together with blank line separators.
+// 2. JSON/JSONL: Provides complete structured data for automated toolchains.
+// 3. PLAIN: A tab-separated "grep-friendly" format for Unix veterans.
+//
+// Mandate: "No Lock-Out"
+// We provide --preserve-order to ensure that our smart grouping defaults
+// never prevent a user from seeing the raw sequence of their input.
 package output
 
 import (
@@ -113,6 +121,9 @@ func (f *VerboseFormatter) Format(result *hash.Result) string {
 // JSONFormatter outputs results in machine-readable JSON format.
 type JSONFormatter struct{}
 
+// JSONLFormatter outputs results in line-delimited JSON format.
+type JSONLFormatter struct{}
+
 // jsonOutput is the structure for JSON output.
 type jsonOutput struct {
 	Processed   int              `json:"processed"`
@@ -131,6 +142,14 @@ type jsonMatchGroup struct {
 type jsonEntry struct {
 	File string `json:"file"`
 	Hash string `json:"hash"`
+}
+
+type jsonlEntry struct {
+	Type      string      `json:"type"`
+	Name      string      `json:"name"`
+	Hash      string      `json:"hash"`
+	Status    string      `json:"status"`
+	Timestamp string      `json:"timestamp"`
 }
 
 // Format implements Formatter for JSONFormatter.
@@ -178,6 +197,35 @@ func (f *JSONFormatter) Format(result *hash.Result) string {
 	return string(data)
 }
 
+// Format implements Formatter for JSONLFormatter.
+func (f *JSONLFormatter) Format(result *hash.Result) string {
+	var sb strings.Builder
+	now := time.Now().Format(time.RFC3339)
+
+	for _, entry := range result.Entries {
+		status := "success"
+		if entry.Error != nil {
+			status = "error"
+		}
+
+		item := jsonlEntry{
+			Type:      "file",
+			Name:      entry.Original,
+			Hash:      entry.Hash,
+			Status:    status,
+			Timestamp: now,
+		}
+
+		data, err := json.Marshal(item)
+		if err == nil {
+			sb.Write(data)
+			sb.WriteString("\n")
+		}
+	}
+
+	return strings.TrimSuffix(sb.String(), "\n")
+}
+
 // PlainFormatter outputs tab-separated results for scripting.
 type PlainFormatter struct{}
 
@@ -202,6 +250,8 @@ func NewFormatter(format string, preserveOrder bool) Formatter {
 		return &VerboseFormatter{}
 	case "json":
 		return &JSONFormatter{}
+	case "jsonl":
+		return &JSONLFormatter{}
 	case "plain":
 		return &PlainFormatter{}
 	default:

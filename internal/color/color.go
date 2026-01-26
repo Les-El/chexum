@@ -72,7 +72,7 @@ func (h *Handler) setupColors() {
 	if h.enabled {
 		// Force color output for the color functions
 		color.NoColor = false
-		
+
 		h.green = color.New(color.FgGreen).SprintfFunc()
 		h.red = color.New(color.FgRed).SprintfFunc()
 		h.yellow = color.New(color.FgYellow).SprintfFunc()
@@ -82,7 +82,7 @@ func (h *Handler) setupColors() {
 	} else {
 		// Disable color output
 		color.NoColor = true
-		
+
 		// No-op functions when colors are disabled
 		noOp := func(format string, a ...interface{}) string {
 			if len(a) == 0 {

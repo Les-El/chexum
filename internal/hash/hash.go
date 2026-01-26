@@ -1,8 +1,14 @@
 // Package hash provides hash computation logic for hashi.
 //
-// It supports multiple hash algorithms (SHA-256, SHA-512, SHA-1, MD5, BLAKE2b)
-// and uses streaming file processing for memory-efficient handling
-// of large files.
+// DESIGN PRINCIPLE: Streaming over Buffering
+// ------------------------------------------
+// Hashing large files (multi-gigabyte ISOs, video files, etc.) can easily
+// exhaust available system memory if the entire file is loaded at once.
+//
+// This package prioritizes memory efficiency by using "Streaming". Instead of
+// ioutil.ReadFile (which buffers everything), we use io.Copy to pipe data from
+// an open file handle directly into the cryptographic hasher. This maintains a
+// constant, small memory footprint regardless of file size.
 package hash
 
 import (
@@ -41,6 +47,7 @@ type Entry struct {
 }
 
 // MatchGroup represents a group of entries with matching hashes.
+// This structure is key to Hashi's "Human-First" grouping logic.
 type MatchGroup struct {
 	Hash    string  // The common hash value
 	Entries []Entry // All entries with this hash
@@ -49,23 +56,25 @@ type MatchGroup struct {
 
 // Result holds the complete results of a hash processing operation.
 type Result struct {
-	Entries        []Entry      // All processed entries
-	Matches        []MatchGroup // Groups of matching hashes
-	Unmatched      []Entry      // Entries with unique hashes
-	Errors         []error      // All errors encountered
+	Entries        []Entry       // All processed entries
+	Matches        []MatchGroup  // Groups of matching hashes
+	Unmatched      []Entry       // Entries with unique hashes
+	Errors         []error       // All errors encountered
 	Duration       time.Duration // Total processing time
-	FilesProcessed int          // Number of files processed
-	BytesProcessed int64        // Total bytes processed
+	FilesProcessed int           // Number of files processed
+	BytesProcessed int64         // Total bytes processed
 }
 
 // Computer handles hash computation for files.
+// It abstracts away the specific algorithm implementation from the caller.
 type Computer struct {
 	algorithm string
 }
 
 // NewComputer creates a new hash computer with the specified algorithm.
 func NewComputer(algorithm string) (*Computer, error) {
-	// Validate algorithm
+	// We perform validation here to ensure the Computer is always in a valid state
+	// when used in subsequent hashing operations.
 	switch algorithm {
 	case AlgorithmSHA256, AlgorithmMD5, AlgorithmSHA1, AlgorithmSHA512, AlgorithmBLAKE2b:
 		return &Computer{algorithm: algorithm}, nil
@@ -75,6 +84,8 @@ func NewComputer(algorithm string) (*Computer, error) {
 }
 
 // newHasher returns a new hash.Hash for the configured algorithm.
+// Note: This uses the standard library hash.Hash interface, allowing us
+// to handle different algorithms polymorphically.
 func (c *Computer) newHasher() hash.Hash {
 	switch c.algorithm {
 	case AlgorithmMD5:
@@ -85,28 +96,42 @@ func (c *Computer) newHasher() hash.Hash {
 		return sha512.New()
 	case AlgorithmBLAKE2b:
 		// BLAKE2b-512 (64 bytes output)
+		// BLAKE2b is often faster than SHA-2 on modern CPUs.
 		h, _ := blake2b.New512(nil)
 		return h
 	default:
+		// We default to SHA-256 as it is the current industry standard
+		// for cryptographic security and compatibility.
 		return sha256.New()
 	}
 }
 
-// ComputeFile computes the hash of a file.
+// ComputeFile computes the hash of a file using a streaming approach.
+//
+// STEP-BY-STEP PROCESS:
+// 1. Open the file handle (read-only).
+// 2. Fetch file metadata (size, modtime) for the result entry.
+// 3. Initialize the cryptographic hasher.
+// 4. Use io.Copy to stream data in chunks from the file to the hasher.
+// 5. Finalize the hash (Sum) and convert the binary digest to a hex string.
 func (c *Computer) ComputeFile(path string) (*Entry, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
+	// defer ensures the file handle is closed even if io.Copy fails,
+	// preventing file descriptor leaks.
 	defer file.Close()
 
-	// Get file info for size and mod time
+	// Get file info for size and mod time before we start hashing.
 	info, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}
 
-	// Compute hash using streaming
+	// io.Copy handles the heavy lifting of reading from the file and writing
+	// to the hasher. By default, it uses a 32KB buffer, which is a good
+	// balance between memory usage and performance.
 	hasher := c.newHasher()
 	size, err := io.Copy(hasher, file)
 	if err != nil {
@@ -124,6 +149,7 @@ func (c *Computer) ComputeFile(path string) (*Entry, error) {
 }
 
 // ComputeReader computes the hash of data from an io.Reader.
+// This allows hashing data from stdin or network streams.
 func (c *Computer) ComputeReader(r io.Reader) (string, error) {
 	hasher := c.newHasher()
 	if _, err := io.Copy(hasher, r); err != nil {
@@ -133,9 +159,11 @@ func (c *Computer) ComputeReader(r io.Reader) (string, error) {
 }
 
 // ComputeBytes computes the hash of a byte slice.
+// Used primarily for testing or very small metadata strings.
 func (c *Computer) ComputeBytes(data []byte) string {
 	hasher := c.newHasher()
 	hasher.Write(data)
+	// hasher.Sum(nil) appends the current hash to nil, returning the digest.
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
@@ -145,10 +173,15 @@ func (c *Computer) Algorithm() string {
 }
 
 // DetectHashAlgorithm returns possible algorithms for a hash string.
-// Returns empty slice if not a valid hash format.
-// Returns multiple algorithms if ambiguous (e.g., SHA-512 and BLAKE2b-512 both = 128 chars).
+//
+// RATIONALE:
+// Since different hash algorithms produce digests of specific lengths
+// (e.g. MD5 is always 32 chars), we can guess the algorithm by its
+// representation. This enables Hashi's "Smart Detection" where users
+// don't have to specify --algo if the hash string is unambiguous.
 func DetectHashAlgorithm(hashStr string) []string {
-	// First validate that string contains only hex characters
+	// First validate that string contains only hex characters.
+	// This prevents misidentifying random words as hashes.
 	if !isValidHexString(hashStr) {
 		return []string{}
 	}
@@ -162,7 +195,7 @@ func DetectHashAlgorithm(hashStr string) []string {
 	case 64:
 		return []string{AlgorithmSHA256}
 	case 128:
-		// Ambiguous - could be SHA-512 or BLAKE2b-512
+		// Ambiguous - could be SHA-512 or BLAKE2b-512 as both output 512 bits.
 		return []string{AlgorithmSHA512, AlgorithmBLAKE2b}
 	default:
 		return []string{}
@@ -174,8 +207,9 @@ func isValidHexString(s string) bool {
 	if len(s) == 0 {
 		return false
 	}
-	
+
 	for _, c := range s {
+		// A-F and 0-9 are the only valid digits in hexadecimal.
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
 			return false
 		}
@@ -205,6 +239,5 @@ func IsValidHash(hash, algorithm string) bool {
 		return false
 	}
 
-	// Check if all characters are valid hex
 	return isValidHexString(hash)
 }

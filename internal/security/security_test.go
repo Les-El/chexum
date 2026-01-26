@@ -56,7 +56,7 @@ func TestProperty_SecurityValidation(t *testing.T) {
 			return true
 		}
 		opts := Options{Verbose: true}
-		
+
 		// If name contains a blacklist word, it should be rejected
 		isBlacklisted := false
 		for _, b := range DefaultBlacklistFiles {
@@ -65,7 +65,7 @@ func TestProperty_SecurityValidation(t *testing.T) {
 				break
 			}
 		}
-		
+
 		err := ValidateFileName(name, opts)
 		if isBlacklisted && !strings.Contains(name, "*") && !strings.Contains(name, "?") {
 			return err != nil
@@ -121,7 +121,7 @@ func TestValidateInputs(t *testing.T) {
 	if err := ValidateInputs(files, hashes, opts); err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
-	
+
 	badHashes := []string{"not-hex"}
 	if err := ValidateInputs(files, badHashes, opts); err == nil {
 		t.Error("Expected error for invalid hex hash")

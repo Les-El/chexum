@@ -56,7 +56,7 @@ func configFilesEqual(a, b *ConfigFile) bool {
 		!ptrBoolEqual(a.Defaults.PreserveOrder, b.Defaults.PreserveOrder) ||
 		!ptrBoolEqual(a.Defaults.MatchRequired, b.Defaults.MatchRequired) ||
 		!ptrStringEqual(a.Defaults.OutputFormat, b.Defaults.OutputFormat) ||
-		!ptrStringEqual(a.Defaults.OutputFile, b.Defaults.OutputFile) ||	
+		!ptrStringEqual(a.Defaults.OutputFile, b.Defaults.OutputFile) ||
 		!ptrBoolEqual(a.Defaults.Append, b.Defaults.Append) ||
 		!ptrBoolEqual(a.Defaults.Force, b.Defaults.Force) ||
 		!ptrStringEqual(a.Defaults.LogFile, b.Defaults.LogFile) ||
@@ -160,19 +160,19 @@ func TestApplyEnvConfig_Coverage(t *testing.T) {
 	fs.String("algorithm", "sha256", "")
 	fs.String("format", "default", "")
 	fs.Bool("recursive", false, "")
-	fs.Bool("hidden", false, "")	
+	fs.Bool("hidden", false, "")
 	fs.Bool("verbose", false, "")
 	fs.Bool("quiet", false, "")
 	fs.Bool("preserve-order", false, "")
 
 	env := &EnvConfig{
-		HashiAlgorithm:     "md5",
-		HashiOutputFormat:  "json",
-		HashiRecursive:     true,
-		HashiHidden:        true,
-		HashiVerbose:       true,
-		HashiQuiet:         true,
-		HashiPreserveOrder: true,
+		HashiAlgorithm:      "md5",
+		HashiOutputFormat:   "json",
+		HashiRecursive:      true,
+		HashiHidden:         true,
+		HashiVerbose:        true,
+		HashiQuiet:          true,
+		HashiPreserveOrder:  true,
 		HashiBlacklistFiles: "f1,f2",
 		HashiBlacklistDirs:  "d1,d2",
 		HashiWhitelistFiles: "w1,w2",
@@ -194,7 +194,7 @@ func TestLoadDotEnv_Errors(t *testing.T) {
 		tmpFile, _ := os.CreateTemp("", ".env_test")
 		defer os.Remove(tmpFile.Name())
 		os.WriteFile(tmpFile.Name(), []byte("INVALID_LINE"), 0644)
-		
+
 		err := LoadDotEnv(tmpFile.Name())
 		if err == nil {
 			t.Error("Expected error for invalid format")
@@ -210,10 +210,10 @@ func TestLoadDotEnv_Errors(t *testing.T) {
 func TestApplyConfigFile_Errors(t *testing.T) {
 	cfg := DefaultConfig()
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	
+
 	cf := &ConfigFile{}
 	cf.Defaults.MinSize = stringPtr("invalid")
-	
+
 	err := cf.ApplyConfigFile(cfg, fs)
 	if err == nil {
 		t.Error("Expected error for invalid min_size")

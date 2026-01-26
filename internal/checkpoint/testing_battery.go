@@ -31,7 +31,7 @@ func (t *TestingBattery) Name() string { return "TestingBattery" }
 func (t *TestingBattery) Analyze(ctx context.Context, path string) ([]Issue, error) {
 	// For analysis, we report packages with low coverage and reliability issues.
 	var issues []Issue
-	
+
 	coverageIssues, err := t.IdentifyLowCoverage(ctx, path)
 	if err == nil {
 		issues = append(issues, coverageIssues...)
@@ -71,7 +71,7 @@ func (t *TestingBattery) CheckTestReliability(ctx context.Context, rootPath stri
 
 	// Instead of ./..., we identify critical packages and run them with -short
 	criticalPackages := []string{"internal/hash", "internal/conflict"}
-	
+
 	for _, pkgRel := range criticalPackages {
 		pkg := filepath.Join(rootPath, pkgRel)
 		cmd := exec.CommandContext(ctx, "go", "test", "-short", "-count=1", "./"+pkgRel)
@@ -139,8 +139,8 @@ func (t *TestingBattery) IdentifyLowCoverage(ctx context.Context, rootPath strin
 		}
 
 		if !hasTests {
-			            issues = append(issues, Issue{
-			                ID:          "MISSING-TEST-SUITE",				Category:    Testing,
+			issues = append(issues, Issue{
+				ID: "MISSING-TEST-SUITE", Category: Testing,
 				Severity:    High,
 				Title:       fmt.Sprintf("Package %s has no tests", path),
 				Description: fmt.Sprintf("The package '%s' contains source code but lacks any test files.", path),
@@ -224,6 +224,18 @@ func (t *TestingBattery) checkMissingTests(n ast.Node, path string, testedFuncs 
 		return nil
 	}
 
+	// Skip TestMain
+	if fn.Name.Name == "TestMain" {
+		return nil
+	}
+
+	// Check if it's a method of an unexported type
+	if fn.Recv != nil && len(fn.Recv.List) > 0 {
+		if !t.isExportedType(fn.Recv.List[0].Type) {
+			return nil
+		}
+	}
+
 	// Try standard naming TestFunc
 	testName := "Test" + fn.Name.Name
 	if testedFuncs[testName] {
@@ -231,22 +243,8 @@ func (t *TestingBattery) checkMissingTests(n ast.Node, path string, testedFuncs 
 	}
 
 	// Try Type_Method naming if it's a method
-	if fn.Recv != nil && len(fn.Recv.List) > 0 {
-		var typeName string
-		switch x := fn.Recv.List[0].Type.(type) {
-		case *ast.StarExpr:
-			if id, ok := x.X.(*ast.Ident); ok {
-				typeName = id.Name
-			}
-		case *ast.Ident:
-			typeName = x.Name
-		}
-		if typeName != "" {
-			methodTestName := fmt.Sprintf("Test%s_%s", typeName, fn.Name.Name)
-			if testedFuncs[methodTestName] {
-				return nil
-			}
-		}
+	if t.isMethodTested(fn, testedFuncs) {
+		return nil
 	}
 
 	return []Issue{{
@@ -260,6 +258,30 @@ func (t *TestingBattery) checkMissingTests(n ast.Node, path string, testedFuncs 
 		Effort:      Small,
 		Priority:    P2,
 	}}
+}
+
+func (t *TestingBattery) isMethodTested(fn *ast.FuncDecl, testedFuncs map[string]bool) bool {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return false
+	}
+
+	var typeName string
+	switch x := fn.Recv.List[0].Type.(type) {
+	case *ast.StarExpr:
+		if id, ok := x.X.(*ast.Ident); ok {
+			typeName = id.Name
+		}
+	case *ast.Ident:
+		typeName = x.Name
+	}
+
+	if typeName != "" {
+		methodTestName := fmt.Sprintf("Test%s_%s", typeName, fn.Name.Name)
+		if testedFuncs[methodTestName] {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *TestingBattery) getTestedFunctions(testFilePath string) map[string]bool {
@@ -278,6 +300,16 @@ func (t *TestingBattery) getTestedFunctions(testFilePath string) map[string]bool
 	})
 
 	return funcs
+}
+
+func (t *TestingBattery) isExportedType(expr ast.Expr) bool {
+	switch x := expr.(type) {
+	case *ast.StarExpr:
+		return t.isExportedType(x.X)
+	case *ast.Ident:
+		return x.IsExported()
+	}
+	return false
 }
 
 // BuildIntegrationTests checks for the existence of integration tests.

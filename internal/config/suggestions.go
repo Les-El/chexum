@@ -48,10 +48,10 @@ var KnownFlags = []string{
 func SuggestFlag(unknown string) string {
 	unknownLower := strings.ToLower(strings.TrimPrefix(unknown, "--"))
 	unknownLower = strings.TrimPrefix(unknownLower, "-")
-	
+
 	bestMatch := ""
 	minDist := 4 // Increased distance for longer flag names
-	
+
 	// First check for substring matches (e.g. "algo" matches "algorithm")
 	if len(unknownLower) >= 3 {
 		for _, known := range KnownFlags {
@@ -78,14 +78,14 @@ func SuggestFlag(unknown string) string {
 			bestMatch = known
 		}
 	}
-	
+
 	if bestMatch != "" {
 		if len(bestMatch) == 1 {
 			return "-" + bestMatch
 		}
 		return "--" + bestMatch
 	}
-	
+
 	return ""
 }
 
@@ -97,12 +97,12 @@ func levenshtein(s1, s2 string) int {
 	if len(s2) == 0 {
 		return len(s1)
 	}
-	
+
 	row := make([]int, len(s2)+1)
 	for i := 0; i < len(row); i++ {
 		row[i] = i
 	}
-	
+
 	for i := 0; i < len(s1); i++ {
 		row[len(s2)] = updateLevenshteinRow(s1[i], s2, row)
 	}

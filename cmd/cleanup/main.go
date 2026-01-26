@@ -9,48 +9,73 @@ import (
 )
 
 func main() {
-	var (
-		verbose   = flag.Bool("verbose", false, "Enable verbose output")
-		dryRun    = flag.Bool("dry-run", false, "Show what would be cleaned without actually removing files")
-		threshold = flag.Float64("threshold", 80.0, "Tmpfs usage threshold percentage to trigger cleanup warning")
-		force     = flag.Bool("force", false, "Force cleanup even if tmpfs usage is below threshold")
-	)
-	flag.Parse()
 
-	cleanup := checkpoint.NewCleanupManager(*verbose)
+	if err := run(os.Args[1:], nil); err != nil {
+
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+
+		os.Exit(1)
+
+	}
+
+}
+
+
+
+func run(args []string, cm *checkpoint.CleanupManager) error {
+	fs := flag.NewFlagSet("cleanup", flag.ContinueOnError)
+	var (
+		verbose   = fs.Bool("verbose", false, "Enable verbose output")
+		dryRun    = fs.Bool("dry-run", false, "Show what would be cleaned without actually removing files")
+		threshold = fs.Float64("threshold", 80.0, "Tmpfs usage threshold percentage to trigger cleanup warning")
+		force     = fs.Bool("force", false, "Force cleanup even if tmpfs usage is below threshold")
+	)
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if cm == nil {
+		cm = checkpoint.NewCleanupManager(*verbose)
+	}
+	cm.SetDryRun(*dryRun)
 
 	// Check current tmpfs usage
-	needsCleanup, usage := cleanup.CheckTmpfsUsage(*threshold)
-	
+	needsCleanup, usage := cm.CheckTmpfsUsage(*threshold)
 	fmt.Printf("Current tmpfs usage: %.1f%%\n", usage)
-	
-	if !needsCleanup && !*force {
+
+	if !needsCleanup && !*force && !*dryRun {
 		fmt.Printf("Tmpfs usage (%.1f%%) is below threshold (%.1f%%). Use -force to cleanup anyway.\n", usage, *threshold)
-		return
+		return nil
 	}
-	
+
 	if *dryRun {
-		fmt.Println("DRY RUN MODE - No files will be actually removed")
-		// In a real implementation, we'd add dry-run logic to the cleanup manager
-		fmt.Println("Would clean:")
-		fmt.Println("  - /tmp/go-build* directories")
-		fmt.Println("  - /tmp/hashi-* files")
-		fmt.Println("  - /tmp/checkpoint-* files")
-		fmt.Println("  - /tmp/test-* files")
-		fmt.Println("  - /tmp/*.tmp files")
-		return
+		showDryRunInfo()
+		return nil
 	}
-	
+
 	if needsCleanup {
 		fmt.Printf("Tmpfs usage (%.1f%%) exceeds threshold (%.1f%%). Starting cleanup...\n", usage, *threshold)
 	} else {
 		fmt.Println("Force cleanup requested...")
 	}
-	
-	if err := cleanup.CleanupOnExit(); err != nil {
-		fmt.Fprintf(os.Stderr, "Cleanup failed: %v\n", err)
-		os.Exit(1)
+
+	if err := cm.CleanupOnExit(); err != nil {
+		return fmt.Errorf("cleanup failed: %w", err)
 	}
-	
+
 	fmt.Println("Cleanup completed successfully!")
+	return nil
 }
+
+func showDryRunInfo() {
+	fmt.Println("DRY RUN MODE - No files will be actually removed")
+	fmt.Println("Would clean:")
+	fmt.Println("  - /tmp/go-build* directories")
+	fmt.Println("  - /tmp/hashi-* files")
+	fmt.Println("  - /tmp/checkpoint-* files")
+	fmt.Println("  - /tmp/test-* files")
+	fmt.Println("  - /tmp/*.tmp files")
+}
+
+

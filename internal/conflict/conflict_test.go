@@ -81,10 +81,47 @@ var conflictResolutionTests = []struct {
 		},
 	},
 	{
-		name: "Format Flag: Verbose",
-		args: []string{"--format=verbose"},
+		name: "JSONL support",
+		args: []string{"--jsonl"},
+		flagSet: map[string]bool{
+			"jsonl": true,
+		},
+		expectedState: conflict.RunState{
+			Mode:      conflict.ModeStandard,
+			Format:    conflict.FormatJSONL,
+			Verbosity: conflict.VerbosityNormal,
+		},
+	},
+	{
+		name: "Last One Wins: JSON vs JSONL",
+		args: []string{"--json", "--jsonl"},
+		flagSet: map[string]bool{
+			"json": true, "jsonl": true,
+		},
+		expectedState: conflict.RunState{
+			Mode:      conflict.ModeStandard,
+			Format:    conflict.FormatJSONL,
+			Verbosity: conflict.VerbosityNormal,
+		},
+	},
+	{
+		name: "Bool overrides JSONL",
+		args: []string{"--bool", "--jsonl"},
+		flagSet: map[string]bool{
+			"bool": true, "jsonl": true,
+		},
+		expectedState: conflict.RunState{
+			Mode:      conflict.ModeBool,
+			Format:    conflict.FormatDefault,
+			Verbosity: conflict.VerbosityQuiet,
+		},
+		hasWarning: true,
+	},
+	{
+		name:           "Format Flag: Verbose",
+		args:           []string{"--format=verbose"},
 		explicitFormat: "verbose",
-		flagSet: map[string]bool{},
+		flagSet:        map[string]bool{},
 		expectedState: conflict.RunState{
 			Mode:      conflict.ModeStandard,
 			Format:    conflict.FormatVerbose,
@@ -120,18 +157,17 @@ func TestConflictResolution_PipelineOfIntent(t *testing.T) {
 		})
 	}
 }
-			
-			func TestResolveState(t *testing.T) {
-				TestConflictResolution_PipelineOfIntent(t)
-			}
-			
-			func TestFormatAllWarnings(t *testing.T) {
-				warnings := []conflict.Warning{
-					{Message: "test warning"},
-				}
-				result := conflict.FormatAllWarnings(warnings)
-				if result == "" {
-					t.Error("Expected formatted warnings, got empty string")
-				}
-			}
-			
+
+func TestResolveState(t *testing.T) {
+	TestConflictResolution_PipelineOfIntent(t)
+}
+
+func TestFormatAllWarnings(t *testing.T) {
+	warnings := []conflict.Warning{
+		{Message: "test warning"},
+	}
+	result := conflict.FormatAllWarnings(warnings)
+	if result == "" {
+		t.Error("Expected formatted warnings, got empty string")
+	}
+}

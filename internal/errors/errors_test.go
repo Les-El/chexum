@@ -21,7 +21,7 @@ import (
 func TestProperty_ErrorMessagesAreHumanReadable(t *testing.T) {
 	handler := NewErrorHandler(color.NewColorHandler())
 	handler.color.SetEnabled(false)
-	
+
 	property := func(errMsg string) bool {
 		if errMsg == "" {
 			return true
@@ -32,7 +32,7 @@ func TestProperty_ErrorMessagesAreHumanReadable(t *testing.T) {
 		}
 		return !containsTechnicalJargon(formatted)
 	}
-	
+
 	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
 		t.Errorf("Property violated: %v", err)
 	}
@@ -55,12 +55,12 @@ func containsTechnicalJargon(s string) bool {
 func TestProperty_ErrorMessagesIncludeSuggestions(t *testing.T) {
 	handler := NewErrorHandler(color.NewColorHandler())
 	handler.color.SetEnabled(false)
-	
+
 	property := func(filename string) bool {
 		if filename == "" {
 			return true
 		}
-		
+
 		errs := []error{NewFileNotFoundError(filename), NewPermissionError(filename)}
 		for _, err := range errs {
 			if !hasSuggestion(handler.FormatError(err)) {
@@ -69,7 +69,7 @@ func TestProperty_ErrorMessagesIncludeSuggestions(t *testing.T) {
 		}
 		return true
 	}
-	
+
 	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
 		t.Errorf("Property violated: %v", err)
 	}
@@ -93,42 +93,42 @@ func hasSuggestion(formatted string) bool {
 func TestProperty_PathsAreSanitized(t *testing.T) {
 	colorHandler := color.NewColorHandler()
 	colorHandler.SetEnabled(false)
-	
+
 	handler := NewErrorHandler(colorHandler)
-	
+
 	// Get home directory for testing
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Skip("Cannot get home directory")
 	}
-	
+
 	// Property: For any path in the home directory, it should be displayed with ~
 	property := func(filename string) bool {
 		// Skip empty filenames
 		if filename == "" {
 			return true
 		}
-		
+
 		// Create a path in the home directory
 		fullPath := home + "/" + filename
-		
+
 		// Create an error with this path
 		err := NewFileNotFoundError(fullPath)
 		formatted := handler.FormatError(err)
-		
+
 		// The formatted message should contain ~ instead of the full home path
 		// (unless the path is very short and doesn't need sanitization)
 		if strings.Contains(formatted, home) && len(home) > 10 {
 			return false
 		}
-		
+
 		return true
 	}
-	
+
 	config := &quick.Config{
 		MaxCount: 100,
 	}
-	
+
 	if err := quick.Check(property, config); err != nil {
 		t.Errorf("Property violated: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestProperty_SimilarErrorsAreGrouped(t *testing.T) {
 		groups := GroupErrors(errs)
 		return verifyGroupCounts(groups, int(numFileNotFound%20), int(numPermission%20), int(numOther%20))
 	}
-	
+
 	config := &quick.Config{MaxCount: 100}
 	if err := quick.Check(property, config); err != nil {
 		t.Errorf("Property violated: %v", err)
@@ -187,7 +187,7 @@ func TestProperty_GroupingPreservesAllErrors(t *testing.T) {
 		if numErrors > 50 {
 			numErrors = numErrors % 50
 		}
-		
+
 		// Create a list of mixed errors
 		var errs []error
 		for i := uint8(0); i < numErrors; i++ {
@@ -200,24 +200,24 @@ func TestProperty_GroupingPreservesAllErrors(t *testing.T) {
 				errs = append(errs, errors.New("other error"))
 			}
 		}
-		
+
 		// Group the errors
 		groups := GroupErrors(errs)
-		
+
 		// Count total errors in groups
 		totalInGroups := 0
 		for _, groupErrs := range groups {
 			totalInGroups += len(groupErrs)
 		}
-		
+
 		// Verify no errors were lost
 		return totalInGroups == len(errs)
 	}
-	
+
 	config := &quick.Config{
 		MaxCount: 100,
 	}
-	
+
 	if err := quick.Check(property, config); err != nil {
 		t.Errorf("Property violated: %v", err)
 	}
@@ -230,9 +230,12 @@ func TestProperty_GroupingPreservesAllErrors(t *testing.T) {
 func TestErrorHandler_FormatError(t *testing.T) {
 	h := NewErrorHandler(color.NewColorHandler())
 	h.color.SetEnabled(false)
-	
+
 	t.Run("Standard Errors", func(t *testing.T) {
-		tests := []struct{ err error; want string }{
+		tests := []struct {
+			err  error
+			want string
+		}{
 			{nil, ""},
 			{errors.New("raw error"), "raw error"},
 		}
@@ -255,13 +258,13 @@ func TestErrorHandler_FormatError(t *testing.T) {
 func TestErrorHandler_SuggestFix(t *testing.T) {
 	h := NewErrorHandler(color.NewColorHandler())
 	h.color.SetEnabled(false)
-	
+
 	tests := []error{
 		NewFileNotFoundError("missing.txt"),
 		NewPermissionError("locked.txt"),
 		NewInvalidHashError("short", "sha256", 64),
 	}
-	
+
 	for _, err := range tests {
 		if h.SuggestFix(err) == "" {
 			t.Error("expected suggestion")
@@ -273,14 +276,14 @@ func TestErrorHandler_SuggestFix(t *testing.T) {
 func TestErrorHandler_VerboseMode(t *testing.T) {
 	h := NewErrorHandler(color.NewColorHandler())
 	h.color.SetEnabled(false)
-	
+
 	err := &Error{Message: "msg", Original: errors.New("cause")}
-	
+
 	h.SetVerbose(false)
 	if strings.Contains(h.FormatError(err), "cause") {
 		t.Error("unexpected cause")
 	}
-	
+
 	h.SetVerbose(true)
 	if !strings.Contains(h.FormatError(err), "cause") {
 		t.Error("missing cause")
@@ -314,7 +317,7 @@ func TestSanitizePath(t *testing.T) {
 	if err != nil {
 		t.Skip("Cannot get home directory")
 	}
-	
+
 	tests := []struct {
 		name     string
 		path     string
@@ -336,11 +339,11 @@ func TestSanitizePath(t *testing.T) {
 			wantHome: false,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := sanitizePath(tt.path)
-			
+
 			if tt.wantHome {
 				if !strings.Contains(result, "~") {
 					t.Errorf("Expected path to contain ~, got %q", result)
@@ -356,15 +359,15 @@ func TestSanitizePath(t *testing.T) {
 // TestNewFileNotFoundError tests file not found error creation.
 func TestNewFileNotFoundError(t *testing.T) {
 	err := NewFileNotFoundError("missing.txt")
-	
+
 	if err.Type != ErrorTypeFileNotFound {
 		t.Errorf("Expected ErrorTypeFileNotFound, got %v", err.Type)
 	}
-	
+
 	if !strings.Contains(err.Message, "missing.txt") {
 		t.Errorf("Expected message to contain filename, got %q", err.Message)
 	}
-	
+
 	if err.Suggestion == "" {
 		t.Errorf("Expected suggestion to be non-empty")
 	}
@@ -373,15 +376,15 @@ func TestNewFileNotFoundError(t *testing.T) {
 // TestNewPermissionError tests permission error creation.
 func TestNewPermissionError(t *testing.T) {
 	err := NewPermissionError("protected.txt")
-	
+
 	if err.Type != ErrorTypePermission {
 		t.Errorf("Expected ErrorTypePermission, got %v", err.Type)
 	}
-	
+
 	if !strings.Contains(err.Message, "protected.txt") {
 		t.Errorf("Expected message to contain filename, got %q", err.Message)
 	}
-	
+
 	if err.Suggestion == "" {
 		t.Errorf("Expected suggestion to be non-empty")
 	}
@@ -390,15 +393,15 @@ func TestNewPermissionError(t *testing.T) {
 // TestNewInvalidHashError tests invalid hash error creation.
 func TestNewInvalidHashError(t *testing.T) {
 	err := NewInvalidHashError("abc123", "sha256", 64)
-	
+
 	if err.Type != ErrorTypeInvalidHash {
 		t.Errorf("Expected ErrorTypeInvalidHash, got %v", err.Type)
 	}
-	
+
 	if !strings.Contains(err.Message, "sha256") {
 		t.Errorf("Expected message to contain algorithm, got %q", err.Message)
 	}
-	
+
 	if !strings.Contains(err.Suggestion, "64") {
 		t.Errorf("Expected suggestion to mention expected length, got %q", err.Suggestion)
 	}
@@ -407,15 +410,15 @@ func TestNewInvalidHashError(t *testing.T) {
 // TestNewConfigError tests config error creation.
 func TestNewConfigError(t *testing.T) {
 	err := NewConfigError("Invalid configuration value")
-	
+
 	if err.Type != ErrorTypeConfig {
 		t.Errorf("Expected ErrorTypeConfig, got %v", err.Type)
 	}
-	
+
 	if err.Message != "Invalid configuration value" {
 		t.Errorf("Expected message to match input, got %q", err.Message)
 	}
-	
+
 	if err.Suggestion == "" {
 		t.Errorf("Expected suggestion to be non-empty")
 	}
@@ -429,7 +432,7 @@ func TestError_Unwrap(t *testing.T) {
 		Message:  "wrapped message",
 		Original: originalErr,
 	}
-	
+
 	unwrapped := wrappedErr.Unwrap()
 	if unwrapped != originalErr {
 		t.Errorf("Expected unwrapped error to be original, got %v", unwrapped)
@@ -492,7 +495,7 @@ func TestClassifyError(t *testing.T) {
 			wantType: ErrorTypeUnknown,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := classifyError(tt.err)

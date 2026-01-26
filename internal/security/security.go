@@ -1,4 +1,20 @@
 // Package security provides input validation and path safety checks for hashi.
+//
+// DESIGN PRINCIPLE: Hashi can't change Hashi
+// -----------------------------------------
+// One of the most dangerous vulnerabilities in automated tools is
+// "Self-Modification" or "Configuration Injection". If an attacker can force
+// a tool to overwrite its own security policy, the tool becomes a weapon.
+//
+// Hashi defends against this with two core mandates:
+// 1. READ-ONLY ON SOURCE: Hashi never, under any circumstances, modifies the
+//    files it is hashing.
+// 2. PROTECTED CONFIGURATION: Hashi cannot write output or logs to its own
+//    configuration files or directories.
+//
+// This package implements these mandates through strict path validation,
+// extension whitelisting, and obfuscated error messages that prevent
+// attackers from discovering which files are protected.
 package security
 
 import (

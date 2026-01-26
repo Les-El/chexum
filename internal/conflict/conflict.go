@@ -1,10 +1,18 @@
 // Package conflict implements the "Pipeline of Intent" state machine for
 // resolving flag configurations.
 //
-// It replaces the traditional pairwise conflict checks with a phased approach:
-// 1. Intent Collection (Scanning args)
-// 2. State Construction (Applying rules like "Last One Wins")
-// 3. Validation (Checking for invalid states)
+// DESIGN PRINCIPLE: Pipeline of Intent
+// ------------------------------------
+// Traditional CLI flag handling often relies on a "Conflict Matrix" (if A then not B).
+// This scales poorly (O(N^2)) and leads to "Matrix Hell" as flags are added.
+//
+// The Pipeline of Intent replaces this with a three-phase state machine:
+// 1. COLLECT: Scan all arguments to identify the user's goals (Mode, Format, Verbosity).
+// 2. CONSTRUCT: Build the desired state using "Last One Wins" for format and "Highest Precedence" for modes.
+// 3. RESOLVE: Apply overrides (e.g. --bool always forces --quiet) and emit warnings for suppressed flags.
+//
+// This reduces complexity to O(N) and provides a predictable, linear behavior
+// that is easy for users to understand and developers to maintain.
 package conflict
 
 import (
@@ -17,7 +25,7 @@ type Mode string
 
 const (
 	ModeStandard Mode = "standard"
-	ModeBool     Mode = "bool"   // --bool
+	ModeBool     Mode = "bool" // --bool
 )
 
 // Format defines the data output format (stdout).
@@ -26,6 +34,7 @@ type Format string
 const (
 	FormatDefault Format = "default"
 	FormatJSON    Format = "json"    // --json or --format=json
+	FormatJSONL   Format = "jsonl"   // --jsonl or --format=jsonl
 	FormatPlain   Format = "plain"   // --plain or --format=plain
 	FormatVerbose Format = "verbose" // --format=verbose
 )
@@ -49,7 +58,7 @@ type RunState struct {
 // Intent represents a user's specific request for a behavior.
 type intent struct {
 	Type     string // "mode", "format", "verbosity"
-	Value    string // e.g. "json", "quiet"
+	Value    string // e.g. "json", "jsonl", "quiet"
 	Position int    // Index in os.Args
 	Flag     string // The actual flag used (e.g., "--json")
 }
@@ -62,7 +71,7 @@ type Warning struct {
 // ResolveState processes raw arguments and detected flags to produce a consistent RunState.
 func ResolveState(args []string, flagSet map[string]bool, explicitFormat string) (*RunState, []Warning, error) {
 	warnings := make([]Warning, 0)
-	
+
 	// Phase 1: Intent Collection
 	lastFormatIntent, lastFormatPos := collectFormatIntent(args, explicitFormat)
 
@@ -100,7 +109,7 @@ func collectFormatIntent(args []string, explicitFormat string) (string, int) {
 	}
 
 	for i, arg := range args {
-		if arg == "--json" || arg == "--plain" {
+		if arg == "--json" || arg == "--jsonl" || arg == "--plain" {
 			intent = strings.TrimPrefix(arg, "--")
 			pos = i
 		} else if strings.HasPrefix(arg, "--format=") {
@@ -130,6 +139,8 @@ func (s *RunState) determineFormat(intent string, pos int) string {
 		switch intent {
 		case "json":
 			s.Format = FormatJSON
+		case "jsonl":
+			s.Format = FormatJSONL
 		case "plain":
 			s.Format = FormatPlain
 		case "verbose":
@@ -168,7 +179,7 @@ func FormatAllWarnings(warnings []Warning) string {
 	if len(warnings) == 0 {
 		return ""
 	}
-	
+
 	var sb strings.Builder
 	for _, warn := range warnings {
 		sb.WriteString(fmt.Sprintf("Warning: %s\n", warn.Message))

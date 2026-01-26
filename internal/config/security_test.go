@@ -74,16 +74,16 @@ var validateConfigSecurityTests = []struct {
 		errMsg:     "output file",
 	},
 	{
-		name:       "unsafe log file - default blacklist",
-		logFile:    "config.txt",
-		shouldErr:  true,
-		errMsg:     "log file",
+		name:      "unsafe log file - default blacklist",
+		logFile:   "config.txt",
+		shouldErr: true,
+		errMsg:    "log file",
 	},
 	{
-		name:       "unsafe JSON log file",
-		logJSON:    ".hashi/debug.json",
-		shouldErr:  true,
-		errMsg:     "JSON log file",
+		name:      "unsafe JSON log file",
+		logJSON:   ".hashi/debug.json",
+		shouldErr: true,
+		errMsg:    "JSON log file",
 	},
 	{
 		name:       "empty paths allowed",
@@ -101,9 +101,9 @@ func TestValidateConfigWithSecurity(t *testing.T) {
 			cfg.OutputFile = tt.outputFile
 			cfg.LogFile = tt.logFile
 			cfg.LogJSON = tt.logJSON
-			
+
 			_, err := ValidateConfig(cfg)
-			
+
 			if tt.shouldErr {
 				if err == nil {
 					t.Errorf("ValidateConfig() expected error, got nil")
@@ -133,18 +133,14 @@ func TestSecurityValidationFunctions(t *testing.T) {
 
 }
 
-
-
 func testValidateFileName(t *testing.T) {
 
 	opts := security.Options{Verbose: true}
 
 	tests := []struct {
-
 		filename string
 
-		wantErr  bool
-
+		wantErr bool
 	}{
 
 		{"safe.txt", false},
@@ -152,7 +148,6 @@ func testValidateFileName(t *testing.T) {
 		{"config.txt", true},
 
 		{"secret.txt", true},
-
 	}
 
 	for _, tt := range tests {
@@ -169,8 +164,6 @@ func testValidateFileName(t *testing.T) {
 
 }
 
-
-
 func testValidateFileNameCustom(t *testing.T) {
 
 	opts := security.Options{
@@ -178,7 +171,6 @@ func testValidateFileNameCustom(t *testing.T) {
 		BlacklistFiles: []string{"temp*"},
 
 		WhitelistFiles: []string{"important.txt"},
-
 	}
 
 	if err := security.ValidateFileName("temp_file.txt", opts); err == nil {
@@ -195,18 +187,14 @@ func testValidateFileNameCustom(t *testing.T) {
 
 }
 
-
-
 func testValidateDirPath(t *testing.T) {
 
 	opts := security.Options{Verbose: true}
 
 	tests := []struct {
-
-		path    string
+		path string
 
 		wantErr bool
-
 	}{
 
 		{"safe/file.txt", false},
@@ -214,7 +202,6 @@ func testValidateDirPath(t *testing.T) {
 		{"config/file.txt", true},
 
 		{"secret/file.txt", true},
-
 	}
 
 	for _, tt := range tests {
@@ -230,7 +217,3 @@ func testValidateDirPath(t *testing.T) {
 	}
 
 }
-
-
-		
-		

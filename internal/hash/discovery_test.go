@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDiscoverFiles(t *testing.T) {
@@ -33,7 +34,7 @@ func TestDiscoverFiles(t *testing.T) {
 			t.Errorf("got %v", files)
 		}
 	})
-	
+
 	t.Run("Filters", testDiscoveryFilters(tmpDir))
 }
 
@@ -50,6 +51,47 @@ func setupDiscoveryTestFiles(t *testing.T) string {
 
 func testDiscoveryFilters(tmpDir string) func(*testing.T) {
 	return func(t *testing.T) {
-		// ... existing filter tests refactored
+		t.Run("Size", func(t *testing.T) {
+			// file1.txt is 1 byte
+			opts := DiscoveryOptions{Recursive: true, MinSize: 2, MaxSize: -1}
+			files, _ := DiscoverFiles([]string{tmpDir}, opts)
+			for _, f := range files {
+				if filepath.Base(f) == "file1.txt" {
+					t.Errorf("file1.txt should have been filtered by min-size")
+				}
+			}
+		})
+
+		t.Run("Include", func(t *testing.T) {
+			opts := DiscoveryOptions{Recursive: true, Include: []string{"file1.txt"}, MaxSize: -1}
+			files, _ := DiscoverFiles([]string{tmpDir}, opts)
+			if len(files) != 1 || filepath.Base(files[0]) != "file1.txt" {
+				t.Errorf("got %v, want [file1.txt]", files)
+			}
+		})
+
+		t.Run("Exclude", func(t *testing.T) {
+			opts := DiscoveryOptions{Recursive: true, Exclude: []string{"file2.txt"}, MaxSize: -1}
+			files, _ := DiscoverFiles([]string{tmpDir}, opts)
+			for _, f := range files {
+				if filepath.Base(f) == "file2.txt" {
+					t.Errorf("file2.txt should have been filtered by exclude")
+				}
+			}
+		})
+
+		t.Run("Date", func(t *testing.T) {
+			// Set old modification time for file1.txt
+			oldTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+			os.Chtimes(filepath.Join(tmpDir, "file1.txt"), oldTime, oldTime)
+
+			opts := DiscoveryOptions{Recursive: true, ModifiedAfter: time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC), MaxSize: -1}
+			files, _ := DiscoverFiles([]string{tmpDir}, opts)
+			for _, f := range files {
+				if filepath.Base(f) == "file1.txt" {
+					t.Errorf("file1.txt should have been filtered by modified-after")
+				}
+			}
+		})
 	}
 }

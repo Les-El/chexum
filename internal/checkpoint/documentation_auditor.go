@@ -29,7 +29,7 @@ func (d *DocAuditor) Name() string { return "DocAuditor" }
 // Analyze executes the documentation audit logic.
 func (d *DocAuditor) Analyze(ctx context.Context, path string) ([]Issue, error) {
 	var allIssues []Issue
-	
+
 	docIssues, _ := d.AuditGoDocumentation(ctx, path)
 	allIssues = append(allIssues, docIssues...)
 
@@ -105,10 +105,14 @@ func (d *DocAuditor) auditFile(filePath string) ([]Issue, error) {
 }
 
 // ValidateREADME ensures the README exists and meets quality standards.
-func (d *DocAuditor) ValidateREADME(ctx context.Context, rootPath string) ([]Issue, error) { return nil, nil }
+func (d *DocAuditor) ValidateREADME(ctx context.Context, rootPath string) ([]Issue, error) {
+	return nil, nil
+}
 
 // CheckArchitecturalDocs verifies the presence of architectural documentation.
-func (d *DocAuditor) CheckArchitecturalDocs(ctx context.Context, rootPath string) ([]Issue, error) { return nil, nil }
+func (d *DocAuditor) CheckArchitecturalDocs(ctx context.Context, rootPath string) ([]Issue, error) {
+	return nil, nil
+}
 
 // VerifyExamples checks that example files exist and are valid.
 func (d *DocAuditor) VerifyExamples(ctx context.Context, rootPath string) ([]Issue, error) {

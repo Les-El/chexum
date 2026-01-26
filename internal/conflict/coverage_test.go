@@ -40,7 +40,7 @@ func TestFormatAllWarnings_Empty(t *testing.T) {
 
 func TestDetermineVerbosity_Coverage(t *testing.T) {
 	s := &RunState{Mode: ModeStandard, Format: FormatDefault}
-	
+
 	// Test verbose with default format changes format to verbose
 	flagSet := map[string]bool{"verbose": true}
 	s.determineVerbosity(flagSet)

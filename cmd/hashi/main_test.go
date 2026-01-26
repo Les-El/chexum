@@ -4,14 +4,18 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/quick"
+	"time"
 
 	"github.com/Les-El/hashi/internal/color"
 	"github.com/Les-El/hashi/internal/config"
@@ -19,6 +23,62 @@ import (
 	"github.com/Les-El/hashi/internal/errors"
 	"github.com/Les-El/hashi/internal/hash"
 )
+
+var binaryName = "hashi"
+
+// TestMain runs before all tests in this package and cleans up /tmp after completion
+// to prevent disk space issues from accumulated Go build artifacts.
+func TestMain(m *testing.M) {
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+
+	// Build the binary for integration tests
+	tmpDir, err := os.MkdirTemp("", "hashi-integration-build-*")
+	if err != nil {
+		fmt.Printf("Failed to create temp dir for build: %v\n", err)
+		os.Exit(1)
+	}
+
+	binaryPath := filepath.Join(tmpDir, binaryName)
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, ".")
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		fmt.Printf("Failed to build hashi: %v\nOutput: %s\n", err, string(output))
+		os.RemoveAll(tmpDir)
+		os.Exit(1)
+	}
+
+	// Add binary path to PATH
+	oldPath := os.Getenv("PATH")
+	os.Setenv("PATH", tmpDir+string(os.PathListSeparator)+oldPath)
+
+	// Run tests
+	code := m.Run()
+	
+	// Cleanup
+	os.RemoveAll(tmpDir)
+	os.Setenv("PATH", oldPath)
+	cleanupObviousJunk()
+	
+	os.Exit(code)
+}
+
+func cleanupObviousJunk() {
+	// Only remove patterns that are definitely temporary and safe to remove
+	// after tests have finished
+	junkPatterns := []string{
+		"/tmp/hashi-*",
+		"/tmp/checkpoint-*",
+		"/tmp/test-*",
+	}
+	
+	for _, pattern := range junkPatterns {
+		matches, _ := filepath.Glob(pattern)
+		for _, match := range matches {
+			os.RemoveAll(match)
+		}
+	}
+}
 
 // Property 32: Hash validation mode reports correct algorithms
 // **Validates: Requirements 24.2, 24.4**
@@ -35,7 +95,7 @@ func TestHashValidationMode_ReportsCorrectAlgorithms_Property(t *testing.T) {
 		if !ok {
 			return true
 		}
-		
+
 		hexString := generateHexString(hashLength, hexChars)
 		return verifyValidationMode(hexString, expectedAlgorithms)
 	}
@@ -83,12 +143,12 @@ func verifyValidationMode(hexString string, expected []string) bool {
 	cfg := &config.Config{Hashes: []string{hexString}, Quiet: true}
 	colorHandler := color.NewColorHandler()
 	colorHandler.SetEnabled(false)
-	
+
 	streams := &console.Streams{Out: io.Discard, Err: io.Discard}
 	if runHashValidationMode(cfg, colorHandler, streams) != config.ExitSuccess {
 		return false
 	}
-	
+
 	actual := hash.DetectHashAlgorithm(hexString)
 	if len(actual) != len(expected) {
 		return false
@@ -150,9 +210,9 @@ var hashValidationMultipleTests = []struct {
 	{
 		"all valid hashes",
 		[]string{
-			"d41d8cd98f00b204e9800998ecf8427e",                                                                 // MD5
-			"da39a3ee5e6b4b0d3255bfef95601890afd80709",                                                         // SHA1
-			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",                                 // SHA256
+			"d41d8cd98f00b204e9800998ecf8427e",                                 // MD5
+			"da39a3ee5e6b4b0d3255bfef95601890afd80709",                         // SHA1
+			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", // SHA256
 		},
 		config.ExitSuccess,
 		"all hashes are valid",
@@ -188,13 +248,14 @@ func TestHashValidationMode_MultipleHashes(t *testing.T) {
 			colorHandler := color.NewColorHandler()
 			colorHandler.SetEnabled(false)
 			streams := &console.Streams{Out: io.Discard, Err: io.Discard}
-			
+
 			if exitCode := runHashValidationMode(cfg, colorHandler, streams); exitCode != tt.expectedExitCode {
 				t.Errorf("runHashValidationMode() exit code = %v, want %v for %s", exitCode, tt.expectedExitCode, tt.description)
 			}
 		})
 	}
 }
+
 // Property 33: File+hash comparison returns correct exit codes
 // **Validates: Requirements 25.2, 25.3**
 func TestFileHashComparisonMode_ReturnsCorrectExitCodes_Property(t *testing.T) {
@@ -202,16 +263,16 @@ func TestFileHashComparisonMode_ReturnsCorrectExitCodes_Property(t *testing.T) {
 		if len(fileContent) == 0 {
 			return true
 		}
-		
+
 		path, cleanup := createTempFile(fileContent)
 		defer cleanup()
-		
+
 		actualHash := computeSHA256(path)
 		expectedHash := actualHash
 		if !shouldMatch {
 			expectedHash = flipLastChar(actualHash)
 		}
-		
+
 		return runComparisonAndVerifyExitCode(path, expectedHash, shouldMatch)
 	}
 
@@ -256,10 +317,10 @@ func flipLastChar(s string) string {
 
 func runComparisonAndVerifyExitCode(path, expected string, shouldMatch bool) bool {
 	cfg := &config.Config{
-		Files: []string{path},
-		Hashes: []string{expected},
+		Files:     []string{path},
+		Hashes:    []string{expected},
 		Algorithm: "sha256",
-		Quiet: true,
+		Quiet:     true,
 	}
 	streams := &console.Streams{Out: io.Discard, Err: io.Discard}
 	exitCode := runFileHashComparisonMode(cfg, color.NewColorHandler(), streams)
@@ -276,18 +337,18 @@ func TestBoolOutput_ProducesOnlyTrueFalse_Property(t *testing.T) {
 		if len(fileContent) == 0 {
 			return true
 		}
-		
+
 		path, cleanup := createTempFile(fileContent)
 		defer cleanup()
-		
+
 		expectedHash := computeSHA256(path)
 		if !shouldMatch {
 			expectedHash = "0000000000000000000000000000000000000000000000000000000000000000"
 		}
-		
+
 		return verifyBoolOutput(path, expectedHash, shouldMatch)
 	}
-	
+
 	config := &quick.Config{MaxCount: 100}
 	if err := quick.Check(f, config); err != nil {
 		t.Error(err)
@@ -296,16 +357,16 @@ func TestBoolOutput_ProducesOnlyTrueFalse_Property(t *testing.T) {
 
 func verifyBoolOutput(path, expected string, shouldMatch bool) bool {
 	cfg := &config.Config{
-		Files: []string{path},
-		Hashes: []string{expected},
+		Files:     []string{path},
+		Hashes:    []string{expected},
 		Algorithm: "sha256",
-		Bool: true,
+		Bool:      true,
 	}
-	
+
 	var buf bytes.Buffer
 	streams := &console.Streams{Out: &buf, Err: io.Discard}
 	exitCode := runFileHashComparisonMode(cfg, color.NewColorHandler(), streams)
-	
+
 	output := buf.String()
 	expectedOutput := "false\n"
 	expectedExitCode := config.ExitNoMatches
@@ -313,7 +374,7 @@ func verifyBoolOutput(path, expected string, shouldMatch bool) bool {
 		expectedOutput = "true\n"
 		expectedExitCode = config.ExitSuccess
 	}
-	
+
 	return output == expectedOutput && exitCode == expectedExitCode
 }
 
@@ -322,18 +383,18 @@ func verifyBoolOutput(path, expected string, shouldMatch bool) bool {
 func TestFileHashComparisonMode_MatchingHash(t *testing.T) {
 	tmpFile, expectedHash := setupMatchingHashFile(t)
 	defer os.Remove(tmpFile)
-	
+
 	cfg := &config.Config{
 		Files:     []string{tmpFile},
 		Hashes:    []string{expectedHash},
 		Algorithm: "sha256",
 		Quiet:     false,
 	}
-	
+
 	colorHandler := color.NewColorHandler()
 	colorHandler.SetEnabled(false)
 	streams := &console.Streams{Out: io.Discard, Err: io.Discard}
-	
+
 	if exitCode := runFileHashComparisonMode(cfg, colorHandler, streams); exitCode != config.ExitSuccess {
 		t.Errorf("Expected exit code %d for matching hash, got %d", config.ExitSuccess, exitCode)
 	}
@@ -343,7 +404,7 @@ func TestFileHashComparisonMode_MatchingHash(t *testing.T) {
 func TestFileHashComparisonMode_MatchingHashBool(t *testing.T) {
 	tmpFile, expectedHash := setupMatchingHashFile(t)
 	defer os.Remove(tmpFile)
-	
+
 	cfg := &config.Config{
 		Files:     []string{tmpFile},
 		Hashes:    []string{expectedHash},
@@ -351,11 +412,11 @@ func TestFileHashComparisonMode_MatchingHashBool(t *testing.T) {
 		Bool:      true,
 		Quiet:     true,
 	}
-	
+
 	colorHandler := color.NewColorHandler()
 	colorHandler.SetEnabled(false)
 	streams := &console.Streams{Out: io.Discard, Err: io.Discard}
-	
+
 	if exitCode := runFileHashComparisonMode(cfg, colorHandler, streams); exitCode != config.ExitSuccess {
 		t.Errorf("Expected exit code %d for matching hash in bool mode, got %d", config.ExitSuccess, exitCode)
 	}
@@ -366,13 +427,13 @@ func setupMatchingHashFile(t *testing.T) (string, string) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	
+
 	content := []byte("Hello, World!")
 	if _, err := tmpFile.Write(content); err != nil {
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
 	tmpFile.Close()
-	
+
 	computer, _ := hash.NewComputer("sha256")
 	entry, _ := computer.ComputeFile(tmpFile.Name())
 	return tmpFile.Name(), entry.Hash
@@ -388,16 +449,16 @@ func TestFileHashComparisonMode_MismatchingHash(t *testing.T) {
 	}
 	defer os.Remove(tmpFile.Name())
 	defer tmpFile.Close()
-	
+
 	content := []byte("Hello, World!")
 	if _, err := tmpFile.Write(content); err != nil {
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
 	tmpFile.Close()
-	
+
 	// Use a different hash that won't match
 	wrongHash := "0000000000000000000000000000000000000000000000000000000000000000"
-	
+
 	// Test regular output mode
 	cfg := &config.Config{
 		Files:     []string{tmpFile.Name()},
@@ -405,24 +466,24 @@ func TestFileHashComparisonMode_MismatchingHash(t *testing.T) {
 		Algorithm: "sha256",
 		Quiet:     false,
 	}
-	
+
 	colorHandler := color.NewColorHandler()
 	colorHandler.SetEnabled(false)
-	
+
 	streams := &console.Streams{Out: io.Discard, Err: io.Discard}
 	exitCode := runFileHashComparisonMode(cfg, colorHandler, streams)
-	
+
 	if exitCode != config.ExitNoMatches {
 		t.Errorf("Expected exit code %d for mismatching hash, got %d", config.ExitNoMatches, exitCode)
 	}
-	
+
 	// Test boolean output mode
 	cfg.Bool = true
 	cfg.Quiet = true // Bool implies Quiet behavior
-	
+
 	streams = &console.Streams{Out: io.Discard, Err: io.Discard}
 	exitCode = runFileHashComparisonMode(cfg, colorHandler, streams)
-	
+
 	if exitCode != config.ExitNoMatches {
 		t.Errorf("Expected exit code %d for mismatching hash in bool mode, got %d", config.ExitNoMatches, exitCode)
 	}
@@ -433,21 +494,21 @@ func TestFileHashComparisonMode_MismatchingHash(t *testing.T) {
 func TestFileHashComparisonMode_AlgorithmMismatch(t *testing.T) {
 	// This test is handled by the ClassifyArguments function in config parsing
 	// The error occurs before we reach runFileHashComparisonMode
-	
+
 	// Test MD5 hash with SHA256 algorithm
 	md5Hash := "d41d8cd98f00b204e9800998ecf8427e" // 32 chars = MD5
-	
+
 	// This should be caught during argument parsing, not in the comparison mode
 	files, hashes, err := config.ClassifyArguments([]string{"nonexistent_file.txt", md5Hash}, "sha256")
-	
+
 	if err == nil {
 		t.Error("Expected error for algorithm mismatch, got nil")
 	}
-	
+
 	if len(files) != 0 || len(hashes) != 0 {
 		t.Errorf("Expected empty files and hashes on error, got files=%v, hashes=%v", files, hashes)
 	}
-	
+
 	// Verify the error message suggests the correct algorithm
 	expectedSubstring := "This looks like MD5"
 	if !contains(err.Error(), expectedSubstring) {
@@ -460,20 +521,20 @@ func TestFileHashComparisonMode_AlgorithmMismatch(t *testing.T) {
 func TestFileHashComparisonMode_FileNotFound(t *testing.T) {
 	nonExistentFile := "/tmp/this_file_does_not_exist_12345.txt"
 	validHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	
+
 	cfg := &config.Config{
 		Files:     []string{nonExistentFile},
 		Hashes:    []string{validHash},
 		Algorithm: "sha256",
 		Quiet:     true, // Suppress error output for testing
 	}
-	
+
 	colorHandler := color.NewColorHandler()
 	colorHandler.SetEnabled(false)
-	
+
 	streams := &console.Streams{Out: io.Discard, Err: io.Discard}
 	exitCode := runFileHashComparisonMode(cfg, colorHandler, streams)
-	
+
 	if exitCode != config.ExitFileNotFound {
 		t.Errorf("Expected exit code %d for file not found, got %d", config.ExitFileNotFound, exitCode)
 	}
@@ -489,16 +550,16 @@ func TestFileHashComparisonMode_MultipleFilesError(t *testing.T) {
 	}
 	defer os.Remove(tmpFile1.Name())
 	tmpFile1.Close()
-	
+
 	tmpFile2, err := os.CreateTemp("", "hashi_test2_*.txt")
 	if err != nil {
 		t.Fatalf("Failed to create temp file 2: %v", err)
 	}
 	defer os.Remove(tmpFile2.Name())
 	tmpFile2.Close()
-	
+
 	validHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	
+
 	// This error should be caught in main() before reaching runFileHashComparisonMode
 	cfg := &config.Config{
 		Files:     []string{tmpFile1.Name(), tmpFile2.Name()},
@@ -506,7 +567,7 @@ func TestFileHashComparisonMode_MultipleFilesError(t *testing.T) {
 		Algorithm: "sha256",
 		Quiet:     false,
 	}
-	
+
 	// The error handling is in main(), so we test the condition directly
 	if len(cfg.Files) > 1 && len(cfg.Hashes) > 0 {
 		// This is the condition that triggers the error in main()
@@ -521,7 +582,7 @@ func TestFileHashComparisonMode_MultipleFilesError(t *testing.T) {
 // **Validates: Requirements 25.6**
 func TestFileHashComparisonMode_StdinWithHashError(t *testing.T) {
 	validHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	
+
 	// This error should be caught in main() before reaching runFileHashComparisonMode
 	cfg := &config.Config{
 		Files:     []string{"-"}, // stdin marker
@@ -529,7 +590,7 @@ func TestFileHashComparisonMode_StdinWithHashError(t *testing.T) {
 		Algorithm: "sha256",
 		Quiet:     false,
 	}
-	
+
 	// The error handling is in main(), so we test the condition directly
 	if cfg.HasStdinMarker() && len(cfg.Hashes) > 0 {
 		// This is the condition that triggers the error in main()
@@ -540,29 +601,130 @@ func TestFileHashComparisonMode_StdinWithHashError(t *testing.T) {
 	}
 }
 
+// TestDryRunMode verifies the dry run functionality.
+// **Validates: Requirements 29.1, 29.2, 29.3, 29.7**
+func TestDryRunMode(t *testing.T) {
+	tmpDir, files := setupStandardTestFiles()
+	defer os.RemoveAll(tmpDir)
+
+	cfg := config.DefaultConfig()
+	cfg.Files = files
+	cfg.DryRun = true
+
+	colorHandler := color.NewColorHandler()
+	colorHandler.SetEnabled(false)
+
+	var outBuf, errBuf bytes.Buffer
+	streams := &console.Streams{Out: &outBuf, Err: &errBuf}
+
+	if exitCode := runDryRunMode(cfg, colorHandler, streams); exitCode != config.ExitSuccess {
+		t.Errorf("Expected exit code 0, got %d. Stderr: %s", exitCode, errBuf.String())
+	}
+
+	outStr := outBuf.String()
+	errStr := errBuf.String()
+
+	if !strings.Contains(errStr, "Dry Run: Previewing files") {
+		t.Errorf("Expected Dry Run header in stderr, got: %s", errStr)
+	}
+
+	if !strings.Contains(outStr, "file1.txt") || !strings.Contains(outStr, "file2.txt") {
+		t.Errorf("Expected files in stdout, got: %s", outStr)
+	}
+
+	if !strings.Contains(errStr, "Files to process: 3") {
+		t.Errorf("Expected file count in summary, got: %s", errStr)
+	}
+}
+
+// TestIncrementalHashingMode verifies the manifest-based incremental hashing workflow.
+// **Validates: Requirements 30.1, 30.2, 30.3, 30.4, 30.5**
+//
+// Reviewed: LONG-FUNCTION - Integration test with multiple steps and file system state changes.
+func TestIncrementalHashingMode(t *testing.T) {
+	tmpDir, files := setupStandardTestFiles()
+	defer os.RemoveAll(tmpDir)
+
+	manifestPath := filepath.Join(tmpDir, "manifest.json")
+	colorHandler := color.NewColorHandler()
+	colorHandler.SetEnabled(false)
+	errHandler := errors.NewErrorHandler(colorHandler)
+
+	// 1. Create baseline manifest
+	cfg1 := config.DefaultConfig()
+	cfg1.Files = files
+	cfg1.OutputManifest = manifestPath
+	
+	streams1 := &console.Streams{Out: io.Discard, Err: io.Discard}
+	runStandardHashingMode(cfg1, colorHandler, streams1, errHandler)
+
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		t.Fatalf("Manifest was not created at %s", manifestPath)
+	}
+
+	// 2. Run again with --only-changed (nothing changed)
+	cfg2 := config.DefaultConfig()
+	cfg2.Files = files
+	cfg2.Manifest = manifestPath
+	cfg2.OnlyChanged = true
+	
+	var outBuf2, errBuf2 bytes.Buffer
+	streams2 := &console.Streams{Out: &outBuf2, Err: &errBuf2}
+	
+	// Prepare files should filter them out
+	err := prepareFiles(cfg2, errHandler, streams2)
+	if err != nil {
+		t.Fatalf("prepareFiles failed: %v", err)
+	}
+	
+	if len(cfg2.Files) != 0 {
+		t.Errorf("Expected 0 files to be processed, got %d", len(cfg2.Files))
+	}
+
+	// 3. Modify one file and run again
+	os.WriteFile(files[0], []byte("modified content"), 0644)
+	// Ensure mtime change
+	now := time.Now().Add(time.Hour)
+	os.Chtimes(files[0], now, now)
+
+	cfg3 := config.DefaultConfig()
+	cfg3.Files = files
+	cfg3.Manifest = manifestPath
+	cfg3.OnlyChanged = true
+	
+	err = prepareFiles(cfg3, errHandler, streams2)
+	if err != nil {
+		t.Fatalf("prepareFiles failed: %v", err)
+	}
+	
+	if len(cfg3.Files) != 1 || cfg3.Files[0] != files[0] {
+		t.Errorf("Expected 1 file (files[0]) to be processed, got %v", cfg3.Files)
+	}
+}
+
 // TestStandardHashingMode tests the main hashing logic for multiple files.
 func TestStandardHashingMode(t *testing.T) {
 	tmpDir, files := setupStandardTestFiles()
 	defer os.RemoveAll(tmpDir)
-	
+
 	cfg := config.DefaultConfig()
 	cfg.Files = files
-	
+
 	colorHandler := color.NewColorHandler()
 	colorHandler.SetEnabled(false)
 	errHandler := errors.NewErrorHandler(colorHandler)
-	
+
 	var outBuf, errBuf bytes.Buffer
 	streams := &console.Streams{Out: &outBuf, Err: &errBuf}
-	
+
 	if exitCode := runStandardHashingMode(cfg, colorHandler, streams, errHandler); exitCode != config.ExitSuccess {
 		t.Errorf("Expected exit code 0, got %d. Stderr: %s", exitCode, errBuf.String())
 	}
-	
+
 	if !strings.Contains(outBuf.String(), "file1.txt") || !strings.Contains(outBuf.String(), "file2.txt") {
 		t.Error("Missing file1 or file2 in output")
 	}
-	
+
 	t.Run("JSON", func(t *testing.T) {
 		outBuf.Reset()
 		cfg.OutputFormat = "json"
@@ -576,20 +738,20 @@ func setupStandardTestFiles() (string, []string) {
 	f1 := filepath.Join(tmpDir, "file1.txt")
 	f2 := filepath.Join(tmpDir, "file2.txt")
 	f3 := filepath.Join(tmpDir, "file3.txt")
-	
+
 	contentA := []byte("match me")
 	contentB := []byte("unique")
-	
+
 	os.WriteFile(f1, contentA, 0644)
 	os.WriteFile(f2, contentA, 0644)
 	os.WriteFile(f3, contentB, 0644)
-	
+
 	return tmpDir, []string{f1, f2, f3}
 }
 
 func verifyJSONResult(t *testing.T, data []byte) {
 	var res struct {
-		Processed   int `json:"processed"`
+		Processed   int                   `json:"processed"`
 		MatchGroups []struct{ Count int } `json:"match_groups"`
 	}
 	if err := json.Unmarshal(data, &res); err != nil {
@@ -602,17 +764,18 @@ func verifyJSONResult(t *testing.T, data []byte) {
 
 // contains is a helper function to check if a string contains a substring.
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || 
-		(len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || 
-		func() bool {
-			for i := 1; i <= len(s)-len(substr); i++ {
-				if s[i:i+len(substr)] == substr {
-					return true
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
+			func() bool {
+				for i := 1; i <= len(s)-len(substr); i++ {
+					if s[i:i+len(substr)] == substr {
+						return true
+					}
 				}
-			}
-			return false
-		}())))
+				return false
+			}())))
 }
+
 // TestStdinHashEdgeCaseDetection tests the stdin + hash edge case from multiple angles.
 // This test approaches the problem differently by testing the classification and main() logic separately.
 // **Validates: Requirements 25.6**
@@ -630,19 +793,19 @@ func TestStdinHashEdgeCaseDetection(t *testing.T) {
 			t.Errorf("Expected 1 hash, got %v", hashes)
 		}
 	})
-	
+
 	t.Run("Config_HasStdinMarker", func(t *testing.T) {
 		cfg := &config.Config{Files: []string{"-", "file.txt"}}
 		if !cfg.HasStdinMarker() {
 			t.Error("Expected HasStdinMarker to be true")
 		}
 	})
-	
+
 	t.Run("EdgeCaseDetection", func(t *testing.T) {
 		verifyStdinHashEdgeCase(t, []string{"-"}, []string{"hash"})
 		verifyStdinHashEdgeCase(t, []string{"-", "-"}, []string{"hash"})
 	})
-	
+
 	t.Run("StdinWithoutHashes", func(t *testing.T) {
 		cfg := &config.Config{Files: []string{"-"}, Hashes: []string{}}
 		if cfg.HasStdinMarker() && len(cfg.Hashes) > 0 {

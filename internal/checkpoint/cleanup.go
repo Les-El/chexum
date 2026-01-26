@@ -4,146 +4,197 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
+
+	"github.com/BurntSushi/toml"
 )
 
-// CleanupManager handles temporary file cleanup operations
+// CleanupPattern defines a file pattern for cleanup.
+// It uses shell-style globbing (filepath.Match) to identify targets.
+type CleanupPattern struct {
+	// Pattern is the glob pattern to match against filenames in the base directory.
+	Pattern string `json:"pattern" toml:"pattern"`
+	// Description provides a human-readable explanation of what this pattern targets.
+	Description string `json:"description" toml:"description"`
+	// Enabled allows toggling individual patterns without removing them from configuration.
+	Enabled bool `json:"enabled" toml:"enabled"`
+}
+
+// CleanupConfig defines configuration for the cleanup manager.
+// It allows users to override defaults and provide custom behaviors.
+type CleanupConfig struct {
+	// TmpfsThreshold is the percentage of tmpfs usage that triggers a cleanup suggestion.
+	TmpfsThreshold float64 `json:"tmpfs_threshold" toml:"tmpfs_threshold"`
+	// MaxRetentionDays is the maximum age for temporary files before they are considered stale.
+	MaxRetentionDays int `json:"max_retention_days" toml:"max_retention_days"`
+	// CustomPatterns allows adding project-specific cleanup rules.
+	CustomPatterns []CleanupPattern `json:"custom_patterns" toml:"custom_patterns"`
+	// ExcludePatterns allows preventing specific files from being cleaned up even if they match.
+	ExcludePatterns []string `json:"exclude_patterns" toml:"exclude_patterns"`
+}
+
+// CleanupManager handles temporary file cleanup operations.
+// It is designed to be reusable across different components of the hashi tool.
 type CleanupManager struct {
-	verbose bool
+	verbose  bool
+	dryRun   bool
+	patterns []CleanupPattern
+	config   CleanupConfig
+	baseDir  string
 }
 
-// NewCleanupManager creates a new cleanup manager
+// NewCleanupManager creates a new cleanup manager with default patterns.
+// By default, it targets common Go build artifacts and hashi-specific temporary files.
 func NewCleanupManager(verbose bool) *CleanupManager {
-	return &CleanupManager{
+	cm := &CleanupManager{
 		verbose: verbose,
+		baseDir: "/tmp",
+		patterns: []CleanupPattern{
+			{Pattern: "hashi-*", Description: "Hashi temporary files", Enabled: true},
+			{Pattern: "checkpoint-*", Description: "Checkpoint temporary files", Enabled: true},
+			{Pattern: "test-*", Description: "Test temporary files", Enabled: true},
+			{Pattern: "*.tmp", Description: "Generic temporary files", Enabled: true},
+		},
 	}
+	return cm
 }
 
-// CleanupResult contains information about the cleanup operation
-type CleanupResult struct {
-	FilesRemoved     int
-	DirsRemoved      int
-	SpaceFreed       int64
-	Errors           []string
-	Duration         time.Duration
-	TmpfsUsageBefore float64
-	TmpfsUsageAfter  float64
+// SetDryRun enables or disables dry-run mode.
+// In dry-run mode, no files are actually removed from the file system.
+func (c *CleanupManager) SetDryRun(enabled bool) {
+	c.dryRun = enabled
 }
 
-// CleanupTemporaryFiles removes Go build artifacts and other temporary files
-func (c *CleanupManager) CleanupTemporaryFiles() (*CleanupResult, error) {
-	start := time.Now()
-	result := &CleanupResult{}
-	
-	// Get tmpfs usage before cleanup
-	result.TmpfsUsageBefore = c.getTmpfsUsage()
-	
-	if c.verbose {
-		fmt.Printf("Starting temporary file cleanup...\n")
-		fmt.Printf("Tmpfs usage before cleanup: %.1f%%\n", result.TmpfsUsageBefore)
+// SetBaseDir sets the directory where cleanup operations are performed.
+// This is primarily used for testing purposes.
+func (c *CleanupManager) SetBaseDir(dir string) {
+	c.baseDir = dir
+}
+
+// AddCustomPattern adds a new cleanup pattern to the manager.
+// Patterns added here will be processed alongside default patterns.
+func (c *CleanupManager) AddCustomPattern(pattern, description string) {
+	c.patterns = append(c.patterns, CleanupPattern{
+		Pattern:     pattern,
+		Description: description,
+		Enabled:     true,
+	})
+}
+
+// LoadConfig loads cleanup configuration from a TOML file.
+// It merges custom patterns from the file into the manager's active patterns.
+func (c *CleanupManager) LoadConfig(path string) error {
+	var config struct {
+		Cleanup CleanupConfig `toml:"cleanup"`
 	}
-	
-	// Clean Go build artifacts
-	if err := c.cleanGoBuildArtifacts(result); err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("Go build cleanup error: %v", err))
+	if _, err := toml.DecodeFile(path, &config); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to decode config file: %w", err)
 	}
-	
-	// Clean other temporary files
-	if err := c.cleanOtherTempFiles(result); err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("Other temp cleanup error: %v", err))
-	}
-	
-	// Get tmpfs usage after cleanup
-	result.TmpfsUsageAfter = c.getTmpfsUsage()
-	result.Duration = time.Since(start)
-	
-	if c.verbose {
-		fmt.Printf("Cleanup completed in %v\n", result.Duration)
-		fmt.Printf("Files removed: %d, Directories removed: %d\n", result.FilesRemoved, result.DirsRemoved)
-		fmt.Printf("Space freed: %s\n", c.formatBytes(result.SpaceFreed))
-		fmt.Printf("Tmpfs usage after cleanup: %.1f%%\n", result.TmpfsUsageAfter)
-		if len(result.Errors) > 0 {
-			fmt.Printf("Errors encountered: %d\n", len(result.Errors))
+	c.config = config.Cleanup
+	for _, p := range c.config.CustomPatterns {
+		if p.Enabled {
+			c.AddCustomPattern(p.Pattern, p.Description)
 		}
 	}
-	
+	return nil
+}
+
+// ValidatePatterns checks if any patterns (including custom and exclude) are invalid.
+// It uses filepath.Match to verify the syntax of each pattern.
+func (c *CleanupManager) ValidatePatterns() error {
+	for _, p := range c.patterns {
+		if _, err := filepath.Match(p.Pattern, "test"); err != nil {
+			return fmt.Errorf("invalid pattern %q: %w", p.Pattern, err)
+		}
+	}
+	for _, p := range c.config.ExcludePatterns {
+		if _, err := filepath.Match(p, "test"); err != nil {
+			return fmt.Errorf("invalid exclude pattern %q: %w", p, err)
+		}
+	}
+	return nil
+}
+
+// CleanupResult contains detailed information about a cleanup operation's results.
+type CleanupResult struct {
+	// FilesRemoved is the number of individual files deleted.
+	FilesRemoved int
+	// DirsRemoved is the number of directories deleted (including all their contents).
+	DirsRemoved int
+	// SpaceFreed is the total size in bytes of all removed items.
+	SpaceFreed int64
+	// Errors contains a list of any error messages encountered during the operation.
+	Errors []string
+	// Duration is the total time taken to perform the cleanup.
+	Duration time.Duration
+	// TmpfsUsageBefore is the tmpfs usage percentage before cleanup started.
+	TmpfsUsageBefore float64
+	// TmpfsUsageAfter is the tmpfs usage percentage after cleanup finished.
+	TmpfsUsageAfter float64
+	// DryRun indicates whether this was a simulated operation.
+	DryRun bool
+}
+
+// CleanupTemporaryFiles removes temporary files matching the manager's patterns.
+// If dry-run mode is enabled, it identifies targets and calculates potential savings without deleting anything.
+func (c *CleanupManager) CleanupTemporaryFiles() (*CleanupResult, error) {
+	start := time.Now()
+	result := &CleanupResult{
+		DryRun: c.dryRun,
+	}
+
+	// Get tmpfs usage before cleanup
+	result.TmpfsUsageBefore = c.getTmpfsUsage()
+
+	if c.verbose {
+		c.logStart(result.TmpfsUsageBefore)
+	}
+
+	tmpDir := c.baseDir
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s directory: %w", tmpDir, err)
+	}
+
+	for _, entry := range entries {
+		c.processEntry(entry, result)
+	}
+
+	// Get tmpfs usage after cleanup
+	if c.dryRun {
+		result.TmpfsUsageAfter = result.TmpfsUsageBefore
+	} else {
+		result.TmpfsUsageAfter = c.getTmpfsUsage()
+	}
+	result.Duration = time.Since(start)
+
+	if c.verbose {
+		c.logResult(result)
+	}
+
 	return result, nil
 }
 
-// cleanGoBuildArtifacts removes Go build temporary directories
-func (c *CleanupManager) cleanGoBuildArtifacts(result *CleanupResult) error {
-	tmpDir := "/tmp"
-	
-	entries, err := os.ReadDir(tmpDir)
-	if err != nil {
-		return fmt.Errorf("failed to read /tmp directory: %w", err)
+func (c *CleanupManager) logStart(usage float64) {
+	if c.dryRun {
+		fmt.Printf("Starting temporary file cleanup (DRY RUN)...\n")
+	} else {
+		fmt.Printf("Starting temporary file cleanup...\n")
 	}
-	
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		
-		name := entry.Name()
-		if strings.HasPrefix(name, "go-build") {
-			dirPath := filepath.Join(tmpDir, name)
-			
-			// Get size before removal
-			size, err := c.getDirSize(dirPath)
-			if err == nil {
-				result.SpaceFreed += size
-			}
-			
-			if c.verbose {
-				fmt.Printf("Removing Go build directory: %s\n", dirPath)
-			}
-			
-			if err := os.RemoveAll(dirPath); err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("Failed to remove %s: %v", dirPath, err))
-			} else {
-				result.DirsRemoved++
-			}
-		}
-	}
-	
-	return nil
+	fmt.Printf("Tmpfs usage before cleanup: %.1f%%\n", usage)
 }
 
-// cleanOtherTempFiles removes other temporary files that might accumulate
-func (c *CleanupManager) cleanOtherTempFiles(result *CleanupResult) error {
-	tmpDir := "/tmp"
-	patterns := []string{"hashi-*", "checkpoint-*", "test-*", "*.tmp"}
-	
-	entries, err := os.ReadDir(tmpDir)
-	if err != nil {
-		return fmt.Errorf("failed to read /tmp directory: %w", err)
-	}
-	
-	for _, entry := range entries {
-		c.processTempEntry(tmpDir, entry, patterns, result)
-	}
-	
-	return nil
-}
-
-func (c *CleanupManager) processTempEntry(tmpDir string, entry os.DirEntry, patterns []string, result *CleanupResult) {
+func (c *CleanupManager) processEntry(entry os.DirEntry, result *CleanupResult) {
 	name := entry.Name()
-	filePath := filepath.Join(tmpDir, name)
-	
-	shouldClean := false
-	for _, pattern := range patterns {
-		if matched, _ := filepath.Match(pattern, name); matched {
-			shouldClean = true
-			break
-		}
-	}
-	
-	if !shouldClean {
+	filePath := filepath.Join(c.baseDir, name)
+
+	if !c.shouldClean(name) {
 		return
 	}
-	
+
 	if info, err := entry.Info(); err == nil {
 		if entry.IsDir() {
 			if size, err := c.getDirSize(filePath); err == nil {
@@ -153,13 +204,25 @@ func (c *CleanupManager) processTempEntry(tmpDir string, entry os.DirEntry, patt
 			result.SpaceFreed += info.Size()
 		}
 	}
-	
+
 	if c.verbose {
-		fmt.Printf("Removing temporary file/directory: %s\n", filePath)
+		if c.dryRun {
+			fmt.Printf("Would remove: %s\n", filePath)
+		} else {
+			fmt.Printf("Removing: %s\n", filePath)
+		}
 	}
-	
-	if err := os.RemoveAll(filePath); err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("Failed to remove %s: %v", filePath, err))
+
+	if !c.dryRun {
+		if err := os.RemoveAll(filePath); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to remove %s: %v", filePath, err))
+		} else {
+			if entry.IsDir() {
+				result.DirsRemoved++
+			} else {
+				result.FilesRemoved++
+			}
+		}
 	} else {
 		if entry.IsDir() {
 			result.DirsRemoved++
@@ -169,10 +232,50 @@ func (c *CleanupManager) processTempEntry(tmpDir string, entry os.DirEntry, patt
 	}
 }
 
-// getDirSize calculates the total size of a directory
+func (c *CleanupManager) shouldClean(name string) bool {
+	matched := false
+	for _, p := range c.patterns {
+		if !p.Enabled {
+			continue
+		}
+		if m, _ := filepath.Match(p.Pattern, name); m {
+			matched = true
+			break
+		}
+	}
+
+	if !matched {
+		return false
+	}
+
+	for _, exclude := range c.config.ExcludePatterns {
+		if m, _ := filepath.Match(exclude, name); m {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (c *CleanupManager) logResult(result *CleanupResult) {
+	fmt.Printf("Cleanup completed in %v\n", result.Duration)
+	if c.dryRun {
+		fmt.Printf("Files that would be removed: %d, Directories that would be removed: %d\n", result.FilesRemoved, result.DirsRemoved)
+		fmt.Printf("Estimated space freed: %s\n", c.formatBytes(result.SpaceFreed))
+	} else {
+		fmt.Printf("Files removed: %d, Directories removed: %d\n", result.FilesRemoved, result.DirsRemoved)
+		fmt.Printf("Space freed: %s\n", c.formatBytes(result.SpaceFreed))
+		fmt.Printf("Tmpfs usage after cleanup: %.1f%%\n", result.TmpfsUsageAfter)
+	}
+	if len(result.Errors) > 0 {
+		fmt.Printf("Errors encountered: %d\n", len(result.Errors))
+	}
+}
+
+// getDirSize calculates the total size of a directory recursively.
 func (c *CleanupManager) getDirSize(path string) (int64, error) {
 	var size int64
-	
+
 	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -182,70 +285,70 @@ func (c *CleanupManager) getDirSize(path string) (int64, error) {
 		}
 		return nil
 	})
-	
+
 	return size, err
 }
 
-// getTmpfsUsage returns the current tmpfs usage percentage
-func (c *CleanupManager) getTmpfsUsage() float64 {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs("/tmp", &stat); err != nil {
-		return 0.0
-	}
-	
-	total := stat.Blocks * uint64(stat.Bsize)
-	free := stat.Bavail * uint64(stat.Bsize)
-	used := total - free
-	
-	if total == 0 {
-		return 0.0
-	}
-	
-	return float64(used) / float64(total) * 100.0
-}
-
-// formatBytes formats bytes into human-readable format
+// formatBytes formats a byte count into a human-readable string (e.g., "1.5 MB").
 func (c *CleanupManager) formatBytes(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {
 		return fmt.Sprintf("%d B", bytes)
 	}
-	
+
 	div, exp := int64(unit), 0
 	for n := bytes / unit; n >= unit; n /= unit {
 		div *= unit
 		exp++
 	}
-	
+
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// CleanupOnExit performs cleanup and reports results
+// PreviewCleanup returns what would be removed without actually removing anything.
+// It is a shorthand for enabling dry-run mode, running cleanup, and then restoring the original mode.
+func (c *CleanupManager) PreviewCleanup() (*CleanupResult, error) {
+	oldDryRun := c.dryRun
+	c.dryRun = true
+	defer func() { c.dryRun = oldDryRun }()
+	return c.CleanupTemporaryFiles()
+}
+
+// CleanupOnExit performs cleanup and reports results to stdout.
+// This is typically called at the end of a command or when an error occurs.
 func (c *CleanupManager) CleanupOnExit() error {
 	result, err := c.CleanupTemporaryFiles()
 	if err != nil {
 		return fmt.Errorf("cleanup failed: %w", err)
 	}
-	
+
 	// Always report summary, even in non-verbose mode
-	fmt.Printf("\n=== Cleanup Summary ===\n")
-	fmt.Printf("Files removed: %d\n", result.FilesRemoved)
-	fmt.Printf("Directories removed: %d\n", result.DirsRemoved)
-	fmt.Printf("Space freed: %s\n", c.formatBytes(result.SpaceFreed))
-	fmt.Printf("Tmpfs usage: %.1f%% → %.1f%%\n", result.TmpfsUsageBefore, result.TmpfsUsageAfter)
+	if result.DryRun {
+		fmt.Printf("\n=== Cleanup Preview (DRY RUN) ===\n")
+		fmt.Printf("Files that would be removed: %d\n", result.FilesRemoved)
+		fmt.Printf("Directories that would be removed: %d\n", result.DirsRemoved)
+		fmt.Printf("Estimated space freed: %s\n", c.formatBytes(result.SpaceFreed))
+	} else {
+		fmt.Printf("\n=== Cleanup Summary ===\n")
+		fmt.Printf("Files removed: %d\n", result.FilesRemoved)
+		fmt.Printf("Directories removed: %d\n", result.DirsRemoved)
+		fmt.Printf("Space freed: %s\n", c.formatBytes(result.SpaceFreed))
+		fmt.Printf("Tmpfs usage: %.1f%% → %.1f%%\n", result.TmpfsUsageBefore, result.TmpfsUsageAfter)
+	}
 	fmt.Printf("Duration: %v\n", result.Duration)
-	
+
 	if len(result.Errors) > 0 {
 		fmt.Printf("Errors: %d\n", len(result.Errors))
 		for _, err := range result.Errors {
 			fmt.Printf("  - %s\n", err)
 		}
 	}
-	
+
 	return nil
 }
 
-// CheckTmpfsUsage checks if tmpfs usage is above a threshold and suggests cleanup
+// CheckTmpfsUsage checks if current tmpfs usage exceeds the specified threshold.
+// Returns true if usage is above threshold, along with the current usage percentage.
 func (c *CleanupManager) CheckTmpfsUsage(threshold float64) (bool, float64) {
 	usage := c.getTmpfsUsage()
 	return usage > threshold, usage

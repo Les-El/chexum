@@ -64,11 +64,24 @@ func (c *CodeAnalyzer) analyzeFile(filePath string) ([]Issue, error) {
 		return nil, err
 	}
 
+	issues = append(issues, c.scanTechnicalDebt(f)...)
+	issues = append(issues, c.scanSecurityIssues(f)...)
+
+	return issues, nil
+}
+
+func (c *CodeAnalyzer) scanTechnicalDebt(f *ast.File) []Issue {
+	var issues []Issue
 	// Scan for technical debt markers (such as debt tags)
 	for _, commentGroup := range f.Comments {
 		for _, comment := range commentGroup.List {
 			text := comment.Text
 			if strings.Contains(text, "TODO") || strings.Contains(text, "FIXME") {
+				// Check for review markers
+				if strings.Contains(text, "Reviewed:") {
+					continue
+				}
+
 				issues = append(issues, Issue{
 					ID:          "TECH-DEBT",
 					Category:    CodeQuality,
@@ -83,28 +96,44 @@ func (c *CodeAnalyzer) analyzeFile(filePath string) ([]Issue, error) {
 			}
 		}
 	}
+	return issues
+}
 
+func (c *CodeAnalyzer) scanSecurityIssues(f *ast.File) []Issue {
+	var issues []Issue
 	// Basic Security Check (unsafe)
 	ast.Inspect(f, func(n ast.Node) bool {
 		if imp, ok := n.(*ast.ImportSpec); ok {
 			if imp.Path != nil && imp.Path.Value == "\"unsafe\"" {
-				issues = append(issues, Issue{
-					ID:          "SECURITY-UNSAFE",
-					Category:    Security,
-					Severity:    Medium,
-					Title:       "Usage of 'unsafe' package",
-					Description: "The 'unsafe' package is used in this file.",
-					Location:    c.fset.Position(imp.Pos()).String(),
-					Suggestion:  "Verify if 'unsafe' is absolutely necessary.",
-					Effort:      MediumEffort,
-					Priority:    P2,
-				})
+				// Check for review markers in comments above the import
+				isReviewed := false
+				if imp.Doc != nil {
+					for _, comment := range imp.Doc.List {
+						if strings.Contains(comment.Text, "Reviewed: SECURITY-UNSAFE") || strings.Contains(comment.Text, "Reviewed: UNSAFE") {
+							isReviewed = true
+							break
+						}
+					}
+				}
+
+				if !isReviewed {
+					issues = append(issues, Issue{
+						ID:          "SECURITY-UNSAFE",
+						Category:    Security,
+						Severity:    Medium,
+						Title:       "Usage of 'unsafe' package",
+						Description: "The 'unsafe' package is used in this file.",
+						Location:    c.fset.Position(imp.Pos()).String(),
+						Suggestion:  "Verify if 'unsafe' is absolutely necessary.",
+						Effort:      MediumEffort,
+						Priority:    P2,
+					})
+				}
 			}
 		}
 		return true
 	})
-
-	return issues, nil
+	return issues
 }
 
 // AnalyzePackages performs analysis at the package level.

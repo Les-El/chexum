@@ -161,14 +161,14 @@ func (f *FlagSystem) ClassifyImplementation(ctx context.Context, rootPath string
 	for i := range flags {
 		flag := &flags[i]
 		inConfigFile := strings.Contains(code, "flagSet.Changed(\""+flag.LongForm+"\")")
-		
+
 		// This is a heuristic.
 		if inConfigFile {
 			flag.Status = FullyImplemented
 		} else {
 			flag.Status = PartiallyImplemented
 		}
-		
+
 		// Check for documentation in HelpText
 		if strings.Contains(code, "--"+flag.LongForm) {
 			flag.Documentation = true
@@ -213,7 +213,7 @@ func (f *FlagSystem) PerformCrossReferenceAnalysis(ctx context.Context, rootPath
 func (f *FlagSystem) DetectConflicts(ctx context.Context, flags []FlagStatus) ([]FlagStatus, error) {
 	for i := range flags {
 		flag := &flags[i]
-		
+
 		// Orphaned Flag: Implemented but not documented in help or user docs
 		if flag.DefinedInCode && !flag.DefinedInHelp && !flag.DefinedInDocs {
 			flag.ConflictDetails = append(flag.ConflictDetails, FlagConflict{
@@ -269,7 +269,7 @@ func (f *FlagSystem) GenerateStatusReport(ctx context.Context, flags []FlagStatu
 		if flag.DefinedInPlanning {
 			plan = "✅"
 		}
-		
+
 		conflictStr := "None"
 		if len(flag.ConflictDetails) > 0 {
 			var conflicts []string
@@ -279,7 +279,7 @@ func (f *FlagSystem) GenerateStatusReport(ctx context.Context, flags []FlagStatu
 			conflictStr = strings.Join(conflicts, ", ")
 		}
 
-		sb.WriteString(fmt.Sprintf("| --%s | %s | %s | %s | %s | %s |\n", 
+		sb.WriteString(fmt.Sprintf("| --%s | %s | %s | %s | %s | %s |\n",
 			flag.LongForm, flag.Status, help, docs, plan, conflictStr))
 	}
 	return sb.String(), nil

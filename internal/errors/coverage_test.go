@@ -2,10 +2,10 @@ package errors
 
 import (
 	"errors"
+	"github.com/Les-El/hashi/internal/color"
 	"os"
 	"strings"
 	"testing"
-	"github.com/Les-El/hashi/internal/color"
 )
 
 func TestErrorHandler_FormatError_HashiErrorVerbose(t *testing.T) {

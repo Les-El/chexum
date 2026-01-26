@@ -27,11 +27,11 @@ const (
 type EffortEstimate string
 
 const (
-	XSmall EffortEstimate = "xs"
-	Small  EffortEstimate = "small"
+	XSmall       EffortEstimate = "xs"
+	Small        EffortEstimate = "small"
 	MediumEffort EffortEstimate = "medium"
-	Large  EffortEstimate = "large"
-	XLarge EffortEstimate = "xl"
+	Large        EffortEstimate = "large"
+	XLarge       EffortEstimate = "xl"
 )
 
 // Priority represents the priority of fixing an issue.
@@ -137,12 +137,12 @@ const (
 
 // CoverageReport provides details on test coverage for a package.
 type CoverageReport struct {
-	Package         string      `json:"package"`
-	CurrentCoverage float64     `json:"current_coverage"`
-	TargetCoverage  float64     `json:"target_coverage"`
-	MissingTests    []string    `json:"missing_tests"`
-	ExistingTests   []TestInfo  `json:"existing_tests"`
-	Recommendations []string    `json:"recommendations"`
+	Package         string     `json:"package"`
+	CurrentCoverage float64    `json:"current_coverage"`
+	TargetCoverage  float64    `json:"target_coverage"`
+	MissingTests    []string   `json:"missing_tests"`
+	ExistingTests   []TestInfo `json:"existing_tests"`
+	Recommendations []string   `json:"recommendations"`
 }
 
 // TestType represents the kind of test.

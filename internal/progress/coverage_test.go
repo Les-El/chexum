@@ -24,7 +24,7 @@ func TestBar_Methods(t *testing.T) {
 	if b.current != 1 {
 		t.Errorf("Expected 1, got %d", b.current)
 	}
-	
+
 	b.SetCurrent(10)
 	if b.current != 10 {
 		t.Errorf("Expected 10, got %d", b.current)
@@ -63,7 +63,7 @@ func TestBar_Percentage_Coverage(t *testing.T) {
 	if b.Percentage() != 50.0 {
 		t.Errorf("Expected 50.0, got %f", b.Percentage())
 	}
-	
+
 	b.total = 0
 	if b.Percentage() != 0 {
 		t.Error("Expected 0 percentage for 0 total")

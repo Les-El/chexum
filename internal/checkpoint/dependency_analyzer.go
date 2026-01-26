@@ -46,4 +46,3 @@ func (d *DependencyAnalyzer) AssessDependencies(ctx context.Context, rootPath st
 
 	return issues, nil
 }
-

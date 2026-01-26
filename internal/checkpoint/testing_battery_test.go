@@ -2,6 +2,8 @@ package checkpoint
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -60,10 +62,39 @@ func TestCreateUnitTests(t *testing.T) {
 	tb := NewTestingBattery()
 	ctx := context.Background()
 
-	_, err := tb.CreateUnitTests(ctx, "../../")
-	if err != nil {
-		t.Logf("CreateUnitTests failed: %v", err)
-	}
+	t.Run("Basic", func(t *testing.T) {
+		_, err := tb.CreateUnitTests(ctx, "../../")
+		if err != nil {
+			t.Logf("CreateUnitTests failed: %v", err)
+		}
+	})
+
+	t.Run("NamingConventions", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		code := `package test
+type T struct{}
+func (t *T) Method() {}
+func (t T) ValueMethod() {}
+func Exported() {}
+`
+		os.WriteFile(filepath.Join(tmpDir, "file.go"), []byte(code), 0644)
+		
+		testCode := `package test
+import "testing"
+func TestT_Method(t *testing.T) {}
+func TestT_ValueMethod(t *testing.T) {}
+func TestExported(t *testing.T) {}
+`
+		os.WriteFile(filepath.Join(tmpDir, "file_test.go"), []byte(testCode), 0644)
+		
+		issues, err := tb.CreateUnitTests(ctx, tmpDir)
+		if err != nil {
+			t.Fatalf("CreateUnitTests failed: %v", err)
+		}
+		if len(issues) != 0 {
+			t.Errorf("Expected 0 issues, got %d: %v", len(issues), issues)
+		}
+	})
 }
 
 func TestBuildIntegrationTests(t *testing.T) {

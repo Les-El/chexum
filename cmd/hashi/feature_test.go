@@ -67,7 +67,7 @@ func TestSplitStreams_OutputPathValidation(t *testing.T) {
 	tmpDir := os.TempDir()
 	outPath := tmpDir + "/test_output.json" // Valid extension
 	logPath := tmpDir + "/test_log.txt"     // Valid extension
-	
+
 	// Clean up potentially leftover files
 	os.Remove(outPath)
 	os.Remove(logPath)
@@ -100,36 +100,36 @@ func TestSplitStreams_OutputPathValidation(t *testing.T) {
 // This mirrors the logic in internal/console/streams.go
 func TestConsoleStreams_TeeWriter(t *testing.T) {
 	// We want to verify that writing to the stream writes to both "stdout" (buffer) and "file" (buffer)
-	
+
 	// Simulated Stdout
 	var stdoutBuf bytes.Buffer
 	// Simulated File
 	var fileBuf bytes.Buffer
-	
+
 	// The "Stream"
-	stream := &struct{
+	stream := &struct {
 		Out bytes.Buffer // We can't use io.MultiWriter easily for read-back in this simple struct test, so we'll simulate logic
 	}{}
-	
+
 	// Create the Tee
 	// In the real code: io.MultiWriter(stdout, file)
 	// Here we manually verify the concept works as expected in Go
-	
+
 	importTee := func(data []byte) {
 		stdoutBuf.Write(data)
 		fileBuf.Write(data)
 	}
-	
+
 	data := []byte("hello world")
 	importTee(data)
-	
+
 	if stdoutBuf.String() != "hello world" {
 		t.Error("Stdout buffer didn't receive data")
 	}
 	if fileBuf.String() != "hello world" {
 		t.Error("File buffer didn't receive data")
 	}
-	
+
 	// This confirms the architectural pattern we used in internal/console is sound.
 	_ = stream
 }
@@ -138,18 +138,18 @@ func TestConsoleStreams_TeeWriter(t *testing.T) {
 func TestQuietMode(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Quiet = true
-	
+
 	// Simulated streams
 	var outBuf, errBuf bytes.Buffer
 	streams := &console.Streams{
 		Out: &outBuf,
 		Err: &errBuf,
 	}
-	
+
 	// Test 1: Regular operation with quiet (should be empty)
 	// In a real run, the data would be formatted by internal/output
 	// and printed if !cfg.Quiet.
-	
+
 	// Test 2: Boolean mode with quiet (should output true/false)
 	cfg.Bool = true
 	// Simulate runFileHashComparisonMode logic
@@ -158,11 +158,11 @@ func TestQuietMode(t *testing.T) {
 	} else if !cfg.Quiet {
 		fmt.Fprintln(streams.Out, "PASS")
 	}
-	
+
 	if outBuf.String() != "true\n" {
 		t.Errorf("Expected 'true\\n' in bool mode even with quiet, got %q", outBuf.String())
 	}
-	
+
 	outBuf.Reset()
 	cfg.Bool = false
 	if cfg.Bool {
@@ -170,7 +170,7 @@ func TestQuietMode(t *testing.T) {
 	} else if !cfg.Quiet {
 		fmt.Fprintln(streams.Out, "PASS")
 	}
-	
+
 	if outBuf.Len() > 0 {
 		t.Errorf("Expected empty output with quiet mode, got %q", outBuf.String())
 	}
@@ -183,18 +183,18 @@ func TestProperty_DefaultBehavior(t *testing.T) {
 	// No files, no hashes
 	cfg.Files = []string{}
 	cfg.Hashes = []string{}
-	
+
 	opts := hash.DiscoveryOptions{
 		Recursive: cfg.Recursive,
 		Hidden:    cfg.Hidden,
 	}
-	
+
 	// We simulate the discovery logic from main.go
 	discovered, err := hash.DiscoverFiles(nil, opts)
 	if err != nil {
 		t.Fatalf("discovery failed: %v", err)
 	}
-	
+
 	// Verify that we found some files (assuming the test is run in a non-empty directory)
 	if len(discovered) == 0 {
 		t.Log("Warning: no files discovered in current directory")
@@ -205,24 +205,24 @@ func TestProperty_DefaultBehavior(t *testing.T) {
 func TestProperty_Idempotence(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "hashi-idemp-*")
 	defer os.RemoveAll(tmpDir)
-	
+
 	path := filepath.Join(tmpDir, "test.txt")
 	os.WriteFile(path, []byte("idempotent content"), 0644)
-	
+
 	computer, _ := hash.NewComputer("sha256")
-	
+
 	// First run
 	res1, err1 := computer.ComputeFile(path)
 	if err1 != nil {
 		t.Fatalf("first run failed: %v", err1)
 	}
-	
+
 	// Second run
 	res2, err2 := computer.ComputeFile(path)
 	if err2 != nil {
 		t.Fatalf("second run failed: %v", err2)
 	}
-	
+
 	if res1.Hash != res2.Hash {
 		t.Errorf("Result mismatch: %s vs %s", res1.Hash, res2.Hash)
 	}

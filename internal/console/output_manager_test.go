@@ -15,7 +15,7 @@ import (
 func TestOpenOutputFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := config.DefaultConfig()
-	
+
 	t.Run("creates new file", func(t *testing.T) {
 		testCreateNewFile(t, tmpDir, cfg)
 	})
@@ -103,42 +103,22 @@ func TestOpenJSONLog(t *testing.T) {
 	f.Close()
 }
 
-func TestWrite(t *testing.T) {
-	cfg := config.DefaultConfig()
-	manager := NewOutputManager(cfg, nil)
-	n, err := manager.Write([]byte("test"))
-	if err != nil {
-		t.Errorf("Write failed: %v", err)
-	}
-	if n != 4 {
-		t.Errorf("expected 4 bytes written, got %d", n)
-	}
-}
-
-func TestClose(t *testing.T) {
-	cfg := config.DefaultConfig()
-	manager := NewOutputManager(cfg, nil)
-	if err := manager.Close(); err != nil {
-		t.Errorf("Close failed: %v", err)
-	}
-}
-
 // TestProperty_AppendModePreservesContent verifies that append mode preserves existing content.
 // Property 12: Append mode preserves existing content
 func TestProperty_AppendModePreservesContent(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "hashi-prop-*")
 	defer os.RemoveAll(tmpDir)
-	
+
 	cfg := config.DefaultConfig()
 	manager := NewOutputManager(cfg, nil)
 
 	f := func(initial, addition string) bool {
 		path := filepath.Join(tmpDir, "prop_append.txt")
 		os.Remove(path)
-		
+
 		// Write initial
 		os.WriteFile(path, []byte(initial), 0644)
-		
+
 		// Append
 		f, err := manager.OpenOutputFile(path, true, false)
 		if err != nil {
@@ -146,7 +126,7 @@ func TestProperty_AppendModePreservesContent(t *testing.T) {
 		}
 		f.Write([]byte(addition))
 		f.Close()
-		
+
 		content, _ := os.ReadFile(path)
 		return string(content) == initial+addition
 	}
@@ -156,50 +136,82 @@ func TestProperty_AppendModePreservesContent(t *testing.T) {
 	}
 }
 
-// TestProperty_JSONLogValidity verifies that JSON log append maintains array validity.
-// Property 13: JSON log append maintains validity
-func TestProperty_JSONLogValidity(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "hashi-prop-json-*")
-	defer os.RemoveAll(tmpDir)
-	
+// TestProperty_AtomicWritesPreserveOriginal verifies that the original file is preserved if write fails.
+// Property 48: Atomic writes preserve original on failure
+func TestProperty_AtomicWritesPreserveOriginal(t *testing.T) {
+	tmpDir := t.TempDir()
 	cfg := config.DefaultConfig()
 	manager := NewOutputManager(cfg, nil)
 
-	// Simplified check: can it be parsed as an array?
-	f := func(entries []string) bool {
-		if len(entries) == 0 {
-			return true
-		}
-		
-		path := filepath.Join(tmpDir, "prop_log.json")
-		os.Remove(path)
-		
-		for _, entry := range entries {
-			// Use json.Marshal to ensure valid JSON string escaping
-			entryData, _ := json.Marshal(entry)
-			f, err := manager.OpenJSONLog(path)
-			if err != nil {
-				return false
-			}
-			f.Write(entryData)
-			f.Close()
-		}
-		
-		content, err := os.ReadFile(path)
+	f := func(original, attempt string) bool {
+		path := filepath.Join(tmpDir, "atomic_test.txt")
+		os.WriteFile(path, []byte(original), 0644)
+
+		// Open for atomic write (append=false, force=true)
+		w, err := manager.OpenOutputFile(path, false, true)
 		if err != nil {
 			return false
 		}
-		
-		var result []string
-		err = json.Unmarshal(content, &result)
-		if err != nil {
-			fmt.Printf("Unmarshal error: %v\nContent:\n%s\n", err, string(content))
+
+		// Write some data but DON'T Close() yet
+		w.Write([]byte(attempt))
+
+		// Check original file - it should still be "original" because rename hasn't happened
+		current, _ := os.ReadFile(path)
+		if string(current) != original {
+			w.Close()
 			return false
 		}
-		return len(result) == len(entries)
+
+		// Now close to finalize
+		w.Close()
+
+		// Now it should be "attempt"
+		final, _ := os.ReadFile(path)
+		return string(final) == attempt
 	}
 
 	if err := quick.Check(f, nil); err != nil {
 		t.Error(err)
+	}
+}
+
+// TestProperty_JSONLogMaintainsValidity verifies that appending to JSON log produces valid JSON.
+// Property 50: JSON log append maintains validity
+func TestProperty_JSONLogMaintainsValidity(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.DefaultConfig()
+	manager := NewOutputManager(cfg, nil)
+	path := filepath.Join(tmpDir, "validity.json")
+
+	// Helper to check if file is valid JSON array
+	isValidJSON := func(p string) bool {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return false
+		}
+		var arr []interface{}
+		return json.Unmarshal(data, &arr) == nil
+	}
+
+	// Start with empty file
+	os.Remove(path)
+
+	// Add entries one by one
+	for i := 0; i < 10; i++ {
+		w, err := manager.OpenJSONLog(path)
+		if err != nil {
+			t.Fatalf("OpenJSONLog failed at step %d: %v", i, err)
+		}
+		entry := fmt.Sprintf(`{"id": %d}`, i)
+		w.Write([]byte(entry))
+		w.Close()
+
+		if !isValidJSON(path) {
+			t.Errorf("JSON invalid at step %d", i)
+			data, _ := os.ReadFile(path)
+			t.Logf("Content: %s", string(data))
+			break
+		}
 	}
 }

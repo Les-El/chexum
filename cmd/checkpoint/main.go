@@ -4,67 +4,78 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/Les-El/hashi/internal/checkpoint"
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	ctx := context.Background()
 
 	fmt.Println("Starting Major Checkpoint Analysis...")
 
-	// Check tmpfs usage before starting
 	cleanup := checkpoint.NewCleanupManager(true)
-	needsCleanup, usage := cleanup.CheckTmpfsUsage(75.0)
-	if needsCleanup {
-		fmt.Printf("Warning: Tmpfs usage is %.1f%%. Consider running cleanup before analysis.\n", usage)
-	}
+	checkInitialResources(cleanup)
 
-	issues, flags, err := runAnalysis(ctx)
+	engines := registerEngines()
+
+	issues, flags, err := runAnalysis(ctx, engines)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error running analysis: %v\n", err)
-		
-		// Attempt cleanup on failure
-		fmt.Println("Attempting cleanup after analysis failure...")
-		if cleanupErr := cleanup.CleanupOnExit(); cleanupErr != nil {
-			fmt.Fprintf(os.Stderr, "Cleanup also failed: %v\n", cleanupErr)
-		}
-		os.Exit(1)
+		handleRunFailure(cleanup, "analysis", err)
+		return fmt.Errorf("running analysis: %w", err)
 	}
 
 	reports := generateReports(ctx, issues, flags)
 
 	if err := saveReports(reports); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving reports: %v\n", err)
-		
-		// Attempt cleanup on failure
-		fmt.Println("Attempting cleanup after report generation failure...")
-		if cleanupErr := cleanup.CleanupOnExit(); cleanupErr != nil {
-			fmt.Fprintf(os.Stderr, "Cleanup also failed: %v\n", cleanupErr)
-		}
-		os.Exit(1)
+		handleRunFailure(cleanup, "report generation", err)
+		return fmt.Errorf("saving reports: %w", err)
 	}
 
 	fmt.Println("Analysis complete. Reports generated in major_checkpoint/ directory.")
-	
+
 	// Perform cleanup at the end
 	fmt.Println("Performing post-analysis cleanup...")
 	if err := cleanup.CleanupOnExit(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Cleanup failed: %v\n", err)
 	}
+	return nil
 }
 
-func runAnalysis(ctx context.Context) ([]checkpoint.Issue, []checkpoint.FlagStatus, error) {
-	// Register all engines
-	engines := []checkpoint.AnalysisEngine{
+func checkInitialResources(cleanup *checkpoint.CleanupManager) {
+	// Check tmpfs usage before starting
+	if needsCleanup, usage := cleanup.CheckTmpfsUsage(75.0); needsCleanup {
+		fmt.Printf("Warning: Tmpfs usage is %.1f%%. Consider running cleanup before analysis.\n", usage)
+	}
+}
+
+func registerEngines() []checkpoint.AnalysisEngine {
+	return []checkpoint.AnalysisEngine{
 		checkpoint.NewCodeAnalyzer(),
 		checkpoint.NewDependencyAnalyzer(),
 		checkpoint.NewDocAuditor(),
 		checkpoint.NewTestingBattery(),
 		checkpoint.NewFlagSystem(),
 		checkpoint.NewQualityEngine(),
+		checkpoint.NewCIEngine(85.0),
 	}
+}
 
+func handleRunFailure(cleanup *checkpoint.CleanupManager, phase string, err error) {
+	fmt.Printf("Attempting cleanup after %s failure...\n", phase)
+	if cleanupErr := cleanup.CleanupOnExit(); cleanupErr != nil {
+		fmt.Fprintf(os.Stderr, "Cleanup also failed: %v\n", cleanupErr)
+	}
+}
+
+func runAnalysis(ctx context.Context, engines []checkpoint.AnalysisEngine) ([]checkpoint.Issue, []checkpoint.FlagStatus, error) {
 	runner := checkpoint.NewRunner(engines)
 
 	fmt.Println("Running comprehensive project analysis...")
@@ -88,12 +99,12 @@ func runAnalysis(ctx context.Context) ([]checkpoint.Issue, []checkpoint.FlagStat
 }
 
 type analysisReports struct {
-	plan        string
-	dashboard   string
-	guide       string
-	flagReport  string
-	jsonReport  string
-	csvReport   string
+	plan       string
+	dashboard  string
+	guide      string
+	flagReport string
+	jsonReport string
+	csvReport  string
 }
 
 func generateReports(ctx context.Context, issues []checkpoint.Issue, flags []checkpoint.FlagStatus) analysisReports {
@@ -111,28 +122,29 @@ func generateReports(ctx context.Context, issues []checkpoint.Issue, flags []che
 	flagReport, _ := flagSystem.GenerateStatusReport(ctx, flags)
 
 	return analysisReports{
-		plan:        plan,
-		dashboard:   dashboard,
-		guide:       guide,
-		flagReport:  flagReport,
-		jsonReport:  jsonReport,
-		csvReport:   csvReport,
+		plan:       plan,
+		dashboard:  dashboard,
+		guide:      guide,
+		flagReport: flagReport,
+		jsonReport: jsonReport,
+		csvReport:  csvReport,
 	}
 }
 
 func saveReports(r analysisReports) error {
-	const dir = "major_checkpoint"
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	const rootDir = "major_checkpoint"
+	latestDir := filepath.Join(rootDir, "active", "latest")
+	if err := os.MkdirAll(latestDir, 0755); err != nil {
 		return err
 	}
 
 	files := map[string]string{
-		dir + "/findings_remediation_plan.md":   r.plan,
-		dir + "/findings_status_dashboard.md":   r.dashboard,
-		dir + "/findings_onboarding_guide.md":    r.guide,
-		dir + "/findings_flag_report.md":        r.flagReport,
-		dir + "/findings_remediation_plan.json": r.jsonReport,
-		dir + "/findings_remediation_plan.csv":  r.csvReport,
+		filepath.Join(latestDir, "findings_remediation_plan.md"):   r.plan,
+		filepath.Join(latestDir, "findings_status_dashboard.md"):   r.dashboard,
+		filepath.Join(latestDir, "findings_onboarding_guide.md"):   r.guide,
+		filepath.Join(latestDir, "findings_flag_report.md"):        r.flagReport,
+		filepath.Join(latestDir, "findings_remediation_plan.json"): r.jsonReport,
+		filepath.Join(latestDir, "findings_remediation_plan.csv"):  r.csvReport,
 	}
 
 	for path, content := range files {
@@ -141,7 +153,14 @@ func saveReports(r analysisReports) error {
 		}
 	}
 
+	fmt.Println("Organizing checkpoint artifacts...")
+	organizer := checkpoint.NewOrganizer(rootDir)
+	if err := organizer.CreateSnapshot(""); err != nil {
+		return fmt.Errorf("creating snapshot: %w", err)
+	}
+	if err := organizer.ArchiveOldSnapshots(5); err != nil {
+		fmt.Printf("Warning: Archival failed: %v\n", err)
+	}
+
 	return nil
 }
-
-	

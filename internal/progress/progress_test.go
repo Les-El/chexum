@@ -76,21 +76,21 @@ func verifyProgressIndicatorsProperty(total uint16) bool {
 // after the threshold duration has elapsed.
 func TestProgressThresholdBehavior(t *testing.T) {
 	tests := []struct {
-		name      string
-		threshold time.Duration
-		waitTime  time.Duration
+		name        string
+		threshold   time.Duration
+		waitTime    time.Duration
 		wantEnabled bool
 	}{
 		{
-			name:      "before threshold",
-			threshold: 100 * time.Millisecond,
-			waitTime:  50 * time.Millisecond,
+			name:        "before threshold",
+			threshold:   100 * time.Millisecond,
+			waitTime:    50 * time.Millisecond,
 			wantEnabled: false,
 		},
 		{
-			name:      "after threshold",
-			threshold: 50 * time.Millisecond,
-			waitTime:  70 * time.Millisecond,
+			name:        "after threshold",
+			threshold:   50 * time.Millisecond,
+			waitTime:    70 * time.Millisecond,
 			wantEnabled: true,
 		},
 	}
@@ -124,39 +124,39 @@ func TestProgressThresholdBehavior(t *testing.T) {
 }
 
 var progressCalculationTests = []struct {
-	name       string
-	total      int64
-	current    int64
+	name        string
+	total       int64
+	current     int64
 	wantPercent float64
 }{
 	{
-		name:       "zero progress",
-		total:      100,
-		current:    0,
+		name:        "zero progress",
+		total:       100,
+		current:     0,
 		wantPercent: 0.0,
 	},
 	{
-		name:       "half progress",
-		total:      100,
-		current:    50,
+		name:        "half progress",
+		total:       100,
+		current:     50,
 		wantPercent: 50.0,
 	},
 	{
-		name:       "complete progress",
-		total:      100,
-		current:    100,
+		name:        "complete progress",
+		total:       100,
+		current:     100,
 		wantPercent: 100.0,
 	},
 	{
-		name:       "partial progress",
-		total:      1000,
-		current:    333,
+		name:        "partial progress",
+		total:       1000,
+		current:     333,
 		wantPercent: 33.3,
 	},
 	{
-		name:       "zero total",
-		total:      0,
-		current:    0,
+		name:        "zero total",
+		total:       0,
+		current:     0,
 		wantPercent: 0.0,
 	},
 }
@@ -204,7 +204,7 @@ func TestETACalculation(t *testing.T) {
 	bar.startTime = time.Now().Add(-1 * time.Second) // Started 1 second ago
 
 	eta := bar.ETA()
-	
+
 	// With 50% done in 1 second, ETA should be approximately 1 second
 	// Allow some tolerance for timing variations
 	if eta < 800*time.Millisecond || eta > 1200*time.Millisecond {

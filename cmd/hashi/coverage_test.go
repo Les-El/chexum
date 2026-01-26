@@ -5,9 +5,9 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Les-El/hashi/internal/color"
 	"github.com/Les-El/hashi/internal/config"
 	"github.com/Les-El/hashi/internal/console"
-	"github.com/Les-El/hashi/internal/color"
 	"github.com/Les-El/hashi/internal/errors"
 	"github.com/Les-El/hashi/internal/hash"
 )
@@ -245,4 +245,79 @@ func TestReportValidHash_Coverage(t *testing.T) {
 			t.Errorf("Expected possible algorithms in output, got %s", errBuf.String())
 		}
 	})
+}
+
+func TestReportInvalidHash_Coverage(t *testing.T) {
+	colorHandler := color.NewColorHandler()
+	colorHandler.SetEnabled(false)
+	var outBuf, errBuf bytes.Buffer
+	streams := &console.Streams{Out: &outBuf, Err: &errBuf}
+
+	reportInvalidHash("abc", &config.Config{}, colorHandler, streams)
+	if !bytes.Contains(errBuf.Bytes(), []byte("Invalid hash format")) {
+		t.Errorf("Expected invalid hash message, got %s", errBuf.String())
+	}
+}
+
+func TestFormatSize_Coverage(t *testing.T) {
+	tests := []struct {
+		size int64
+		want string
+	}{
+		{500, "500 B"},
+		{1024, "1.0 KB"},
+		{1024 * 1024, "1.0 MB"},
+		{1024 * 1024 * 1024, "1.0 GB"},
+	}
+
+	for _, tt := range tests {
+		got := formatSize(tt.size)
+		if got != tt.want {
+			t.Errorf("formatSize(%d) = %q, want %q", tt.size, got, tt.want)
+		}
+	}
+}
+
+func TestRunDryRunMode_Coverage(t *testing.T) {
+	colorHandler := color.NewColorHandler()
+	colorHandler.SetEnabled(false)
+	var outBuf, errBuf bytes.Buffer
+	streams := &console.Streams{Out: &outBuf, Err: &errBuf}
+
+	t.Run("FileStatError", func(t *testing.T) {
+		cfg := &config.Config{Files: []string{"non_existent_file"}}
+		code := runDryRunMode(cfg, colorHandler, streams)
+		if code != config.ExitSuccess {
+			t.Errorf("Expected success even with stat error, got %d", code)
+		}
+		if !bytes.Contains(errBuf.Bytes(), []byte("non_existent_file")) {
+			t.Errorf("Expected filename in error output, got %s", errBuf.String())
+		}
+	})
+}
+
+func TestProcessFile_Error_Coverage(t *testing.T) {
+	colorHandler := color.NewColorHandler()
+	errHandler := errors.NewErrorHandler(colorHandler)
+	var outBuf, errBuf bytes.Buffer
+	streams := &console.Streams{Out: &outBuf, Err: &errBuf}
+	computer, _ := hash.NewComputer("sha256")
+	results := &hash.Result{}
+
+	processFile("non_existent", computer, results, nil, &config.Config{}, streams, errHandler)
+	if len(results.Errors) == 0 {
+		t.Error("Expected error in results")
+	}
+}
+
+func TestHandleComparisonError_Coverage(t *testing.T) {
+	colorHandler := color.NewColorHandler()
+	colorHandler.SetEnabled(false)
+	var outBuf, errBuf bytes.Buffer
+	streams := &console.Streams{Out: &outBuf, Err: &errBuf}
+
+	handleComparisonError(os.ErrNotExist, "Failed test", &config.Config{}, colorHandler, streams)
+	if !bytes.Contains(errBuf.Bytes(), []byte("Failed test")) {
+		t.Errorf("Expected message in stderr, got %s", errBuf.String())
+	}
 }

@@ -15,7 +15,7 @@ func TestProperty25_ConflictResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hashi failed: %v, output: %s", err, string(out))
 	}
-	
+
 	// Warning should be in the output
 	if !strings.Contains(string(out), "Warning: --quiet overrides --verbose") {
 		t.Errorf("Expected override warning, got: %s", string(out))

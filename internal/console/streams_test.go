@@ -1,8 +1,8 @@
 package console
 
 import (
-	"testing"
 	"github.com/Les-El/hashi/internal/config"
+	"testing"
 )
 
 func TestInitStreams(t *testing.T) {
