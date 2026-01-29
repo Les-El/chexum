@@ -23,8 +23,8 @@ type CleanupPattern struct {
 // CleanupConfig defines configuration for the cleanup manager.
 // It allows users to override defaults and provide custom behaviors.
 type CleanupConfig struct {
-	// TmpfsThreshold is the percentage of tmpfs usage that triggers a cleanup suggestion.
-	TmpfsThreshold float64 `json:"tmpfs_threshold" toml:"tmpfs_threshold"`
+	// StorageThreshold is the percentage of storage usage that triggers a cleanup suggestion.
+	StorageThreshold float64 `json:"storage_threshold" toml:"storage_threshold"`
 	// MaxRetentionDays is the maximum age for temporary files before they are considered stale.
 	MaxRetentionDays int `json:"max_retention_days" toml:"max_retention_days"`
 	// CustomPatterns allows adding project-specific cleanup rules.
@@ -36,11 +36,12 @@ type CleanupConfig struct {
 // CleanupManager handles temporary file cleanup operations.
 // It is designed to be reusable across different components of the hashi tool.
 type CleanupManager struct {
-	verbose  bool
-	dryRun   bool
-	patterns []CleanupPattern
-	config   CleanupConfig
-	baseDir  string
+	verbose    bool
+	dryRun     bool
+	patterns   []CleanupPattern
+	config     CleanupConfig
+	baseDir    string
+	workspaces []*Workspace
 }
 
 // NewCleanupManager creates a new cleanup manager with default patterns.
@@ -48,15 +49,21 @@ type CleanupManager struct {
 func NewCleanupManager(verbose bool) *CleanupManager {
 	cm := &CleanupManager{
 		verbose: verbose,
-		baseDir: "/tmp",
+		baseDir: os.TempDir(),
 		patterns: []CleanupPattern{
 			{Pattern: "hashi-*", Description: "Hashi temporary files", Enabled: true},
 			{Pattern: "checkpoint-*", Description: "Checkpoint temporary files", Enabled: true},
 			{Pattern: "test-*", Description: "Test temporary files", Enabled: true},
 			{Pattern: "*.tmp", Description: "Generic temporary files", Enabled: true},
 		},
+		workspaces: make([]*Workspace, 0),
 	}
 	return cm
+}
+
+// RegisterWorkspace adds a workspace to the manager's tracking list.
+func (c *CleanupManager) RegisterWorkspace(ws *Workspace) {
+	c.workspaces = append(c.workspaces, ws)
 }
 
 // SetDryRun enables or disables dry-run mode.
@@ -130,15 +137,15 @@ type CleanupResult struct {
 	Errors []string
 	// Duration is the total time taken to perform the cleanup.
 	Duration time.Duration
-	// TmpfsUsageBefore is the tmpfs usage percentage before cleanup started.
-	TmpfsUsageBefore float64
-	// TmpfsUsageAfter is the tmpfs usage percentage after cleanup finished.
-	TmpfsUsageAfter float64
+	// StorageUsageBefore is the storage usage percentage before cleanup started.
+	StorageUsageBefore float64
+	// StorageUsageAfter is the storage usage percentage after cleanup finished.
+	StorageUsageAfter float64
 	// DryRun indicates whether this was a simulated operation.
 	DryRun bool
 }
 
-// CleanupTemporaryFiles removes temporary files matching the manager's patterns.
+// CleanupTemporaryFiles removes temporary files matching the manager's patterns and disposes of tracked workspaces.
 // If dry-run mode is enabled, it identifies targets and calculates potential savings without deleting anything.
 func (c *CleanupManager) CleanupTemporaryFiles() (*CleanupResult, error) {
 	start := time.Now()
@@ -146,13 +153,23 @@ func (c *CleanupManager) CleanupTemporaryFiles() (*CleanupResult, error) {
 		DryRun: c.dryRun,
 	}
 
-	// Get tmpfs usage before cleanup
-	result.TmpfsUsageBefore = c.getTmpfsUsage()
+	// Get storage usage before cleanup
+	result.StorageUsageBefore = c.getStorageUsage()
 
 	if c.verbose {
-		c.logStart(result.TmpfsUsageBefore)
+		c.logStart(result.StorageUsageBefore)
 	}
 
+	// 1. Process tracked workspaces
+	for _, ws := range c.workspaces {
+		c.processWorkspace(ws, result)
+	}
+	// Clear workspaces list after processing
+	if !c.dryRun {
+		c.workspaces = make([]*Workspace, 0)
+	}
+
+	// 2. Process legacy patterns in base directory
 	tmpDir := c.baseDir
 	entries, err := os.ReadDir(tmpDir)
 	if err != nil {
@@ -163,11 +180,11 @@ func (c *CleanupManager) CleanupTemporaryFiles() (*CleanupResult, error) {
 		c.processEntry(entry, result)
 	}
 
-	// Get tmpfs usage after cleanup
+	// Get storage usage after cleanup
 	if c.dryRun {
-		result.TmpfsUsageAfter = result.TmpfsUsageBefore
+		result.StorageUsageAfter = result.StorageUsageBefore
 	} else {
-		result.TmpfsUsageAfter = c.getTmpfsUsage()
+		result.StorageUsageAfter = c.getStorageUsage()
 	}
 	result.Duration = time.Since(start)
 
@@ -178,13 +195,41 @@ func (c *CleanupManager) CleanupTemporaryFiles() (*CleanupResult, error) {
 	return result, nil
 }
 
+func (c *CleanupManager) processWorkspace(ws *Workspace, result *CleanupResult) {
+	if ws.isMem || ws.Root == "" {
+		return
+	}
+
+	if size, err := c.getDirSize(ws.Root); err == nil {
+		result.SpaceFreed += size
+	}
+
+	if c.verbose {
+		if c.dryRun {
+			fmt.Printf("Would remove workspace: %s\n", ws.Root)
+		} else {
+			fmt.Printf("Removing workspace: %s\n", ws.Root)
+		}
+	}
+
+	if !c.dryRun {
+		if err := ws.Cleanup(); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to cleanup workspace %s: %v", ws.Root, err))
+		} else {
+			result.DirsRemoved++
+		}
+	} else {
+		result.DirsRemoved++
+	}
+}
+
 func (c *CleanupManager) logStart(usage float64) {
 	if c.dryRun {
 		fmt.Printf("Starting temporary file cleanup (DRY RUN)...\n")
 	} else {
 		fmt.Printf("Starting temporary file cleanup...\n")
 	}
-	fmt.Printf("Tmpfs usage before cleanup: %.1f%%\n", usage)
+	fmt.Printf("Storage usage before cleanup: %.1f%%\n", usage)
 }
 
 func (c *CleanupManager) processEntry(entry os.DirEntry, result *CleanupResult) {
@@ -265,7 +310,7 @@ func (c *CleanupManager) logResult(result *CleanupResult) {
 	} else {
 		fmt.Printf("Files removed: %d, Directories removed: %d\n", result.FilesRemoved, result.DirsRemoved)
 		fmt.Printf("Space freed: %s\n", c.formatBytes(result.SpaceFreed))
-		fmt.Printf("Tmpfs usage after cleanup: %.1f%%\n", result.TmpfsUsageAfter)
+		fmt.Printf("Storage usage after cleanup: %.1f%%\n", result.StorageUsageAfter)
 	}
 	if len(result.Errors) > 0 {
 		fmt.Printf("Errors encountered: %d\n", len(result.Errors))
@@ -333,7 +378,7 @@ func (c *CleanupManager) CleanupOnExit() error {
 		fmt.Printf("Files removed: %d\n", result.FilesRemoved)
 		fmt.Printf("Directories removed: %d\n", result.DirsRemoved)
 		fmt.Printf("Space freed: %s\n", c.formatBytes(result.SpaceFreed))
-		fmt.Printf("Tmpfs usage: %.1f%% → %.1f%%\n", result.TmpfsUsageBefore, result.TmpfsUsageAfter)
+		fmt.Printf("Storage usage: %.1f%% → %.1f%%\n", result.StorageUsageBefore, result.StorageUsageAfter)
 	}
 	fmt.Printf("Duration: %v\n", result.Duration)
 
@@ -347,9 +392,9 @@ func (c *CleanupManager) CleanupOnExit() error {
 	return nil
 }
 
-// CheckTmpfsUsage checks if current tmpfs usage exceeds the specified threshold.
+// CheckStorageUsage checks if current storage usage exceeds the specified threshold.
 // Returns true if usage is above threshold, along with the current usage percentage.
-func (c *CleanupManager) CheckTmpfsUsage(threshold float64) (bool, float64) {
-	usage := c.getTmpfsUsage()
+func (c *CleanupManager) CheckStorageUsage(threshold float64) (bool, float64) {
+	usage := c.getStorageUsage()
 	return usage > threshold, usage
 }

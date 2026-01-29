@@ -51,9 +51,10 @@ func setupTestSuiteIteration(t *testing.T, i int, isExported, hasTest bool, batt
 		}
 	}
 
+	ws, _ := NewWorkspace(true)
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
-	issues, err := battery.CreateUnitTests(ctx, tmpDir)
+	issues, err := battery.CreateUnitTests(ctx, tmpDir, ws)
 	os.Chdir(oldWd)
 
 	if err != nil {

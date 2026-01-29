@@ -3,6 +3,7 @@ package hash
 
 import (
 	"bytes"
+	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -169,6 +170,34 @@ func TestComputeFile(t *testing.T) {
 	expected := c.ComputeBytes(content)
 	if entry.Hash != expected {
 		t.Errorf("Hash = %v, want %v", entry.Hash, expected)
+	}
+}
+
+// TestComputeBatch tests parallel hash computation for multiple files.
+func TestComputeBatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	files := []string{
+		filepath.Join(tmpDir, "file1.txt"),
+		filepath.Join(tmpDir, "file2.txt"),
+		filepath.Join(tmpDir, "file3.txt"),
+	}
+	for i, f := range files {
+		os.WriteFile(f, []byte(fmt.Sprintf("content%d", i)), 0644)
+	}
+
+	c, _ := NewComputer(AlgorithmSHA256)
+	results := c.ComputeBatch(files, 2)
+
+	count := 0
+	for entry := range results {
+		if entry.Error != nil {
+			t.Errorf("Unexpected error for %s: %v", entry.Original, entry.Error)
+		}
+		count++
+	}
+
+	if count != len(files) {
+		t.Errorf("Expected %d results, got %d", len(files), count)
 	}
 }
 

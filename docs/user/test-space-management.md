@@ -2,9 +2,9 @@
 
 ## Problem
 
-During test execution, particularly with Go's testing infrastructure, accumulated temporary files in `/tmp` can cause disk space exhaustion. This manifests as errors like:
-- `open /tmp/go-build*/file: no such file or directory`
-- Build failures due to insufficient /tmp space
+During test execution, particularly with Go's testing infrastructure, accumulated temporary files in the system temporary directory can cause disk space exhaustion. This manifests as errors like:
+- `open .../go-build*/file: no such file or directory`
+- Build failures due to insufficient temporary storage space
 
 ## Solution
 
@@ -16,7 +16,7 @@ Each test package (cmd/hashi, cmd/checkpoint, cmd/cleanup, internal/checkpoint) 
 
 ```bash
 go test ./cmd/...
-# Automatically removes /tmp/hashi-*, /tmp/checkpoint-*, /tmp/test-* after completion
+# Automatically removes temporary project artifacts after completion
 ```
 
 ### 2. Pre-Test Cleanup Script
@@ -99,9 +99,9 @@ If tests still fail with disk space errors after running cleanup:
    lsof /tmp | head -20
    ```
 
-4. Consider using a larger tmpfs mount or switching to a different temporary directory:
+4. Consider using a different temporary directory with more space:
    ```bash
-   export TMPDIR=/var/tmp
+   export TMPDIR=/path/to/larger/storage
    go test ./...
    ```
 

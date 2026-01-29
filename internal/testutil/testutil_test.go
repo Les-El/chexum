@@ -34,8 +34,8 @@ func TestTempDir(t *testing.T) {
 		t.Errorf("expected temp dir %s to exist", dir)
 	}
 
-	if !filepath.HasPrefix(filepath.Base(dir), "hashi-test-") {
-		t.Errorf("expected temp dir to have prefix hashi-test-, got %s", filepath.Base(dir))
+	if !filepath.HasPrefix(filepath.Base(dir), "h-testdir-") {
+		t.Errorf("expected temp dir to have prefix h-testdir-, got %s", filepath.Base(dir))
 	}
 
 	cleanup()
@@ -49,7 +49,7 @@ func TestCreateFile(t *testing.T) {
 	defer cleanup()
 
 	path := CreateFile(t, dir, "test.txt", "hello world")
-	
+
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("failed to read created file: %v", err)
@@ -70,16 +70,16 @@ func TestAssertContains(t *testing.T) {
 	AssertContains(t, "hello world", "world")
 }
 
-func TestAutoCleanupTmpfs(t *testing.T) {
+func TestAutoCleanupStorage(t *testing.T) {
 	// Create a file that matches the pattern
-	path := filepath.Join(os.TempDir(), "hashi-test-autocleanup")
+	path := filepath.Join(os.TempDir(), "hashi-cleanup-test")
 	if err := os.WriteFile(path, []byte("test"), 0644); err != nil {
 		t.Fatalf("failed to create test file in /tmp: %v", err)
 	}
 
-	cleaned := AutoCleanupTmpfs(t)
+	cleaned := AutoCleanupStorage(t)
 	if !cleaned {
-		t.Errorf("expected AutoCleanupTmpfs to return true (cleaned something)")
+		t.Errorf("expected AutoCleanupStorage to return true (cleaned something)")
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -87,7 +87,7 @@ func TestAutoCleanupTmpfs(t *testing.T) {
 	}
 }
 
-func TestRequireCleanTmpfs(t *testing.T) {
+func TestRequireCleanStorage(t *testing.T) {
 	// Smoke test
-	RequireCleanTmpfs(t)
+	RequireCleanStorage(t)
 }

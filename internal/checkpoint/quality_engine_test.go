@@ -23,7 +23,8 @@ func TestQualityEngine_Name(t *testing.T) {
 func TestQualityEngine_Analyze(t *testing.T) {
 	engine := NewQualityEngine()
 	ctx := context.Background()
-	_, err := engine.Analyze(ctx, "../../")
+	ws, _ := NewWorkspace(true)
+	_, err := engine.Analyze(ctx, "../../", ws)
 	if err != nil {
 		t.Errorf("Analyze failed: %v", err)
 	}
@@ -32,6 +33,7 @@ func TestQualityEngine_Analyze(t *testing.T) {
 func TestCheckGoStandards(t *testing.T) {
 	engine := NewQualityEngine()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
 	content := "package test\nfunc LongFunc() {\n"
 	for i := 0; i < 60; i++ {
@@ -46,7 +48,7 @@ func TestCheckGoStandards(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 	os.WriteFile(tmpFile.Name(), []byte(content), 0644)
 
-	issues, err := engine.CheckGoStandards(ctx, "../../")
+	issues, err := engine.CheckGoStandards(ctx, "../../", ws)
 	if err != nil {
 		t.Errorf("CheckGoStandards failed: %v", err)
 	}
@@ -56,8 +58,9 @@ func TestCheckGoStandards(t *testing.T) {
 func TestEvaluateErrorHandling(t *testing.T) {
 	engine := NewQualityEngine()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
-	issues, err := engine.EvaluateErrorHandling(ctx, "../../")
+	issues, err := engine.EvaluateErrorHandling(ctx, "../../", ws)
 	if err != nil {
 		t.Errorf("EvaluateErrorHandling failed: %v", err)
 	}
@@ -67,8 +70,9 @@ func TestEvaluateErrorHandling(t *testing.T) {
 func TestAnalyzePerformance(t *testing.T) {
 	engine := NewQualityEngine()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
-	issues, err := engine.AnalyzePerformance(ctx, "../../")
+	issues, err := engine.AnalyzePerformance(ctx, "../../", ws)
 	if err != nil {
 		t.Errorf("AnalyzePerformance failed: %v", err)
 	}
@@ -78,9 +82,10 @@ func TestAnalyzePerformance(t *testing.T) {
 func TestAssessCLIDesign(t *testing.T) {
 	engine := NewQualityEngine()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
 	// In this repo, internal/config/config.go exists.
-	issues, err := engine.AssessCLIDesign(ctx, "../../")
+	issues, err := engine.AssessCLIDesign(ctx, "../../", ws)
 	if err != nil {
 		t.Errorf("AssessCLIDesign failed: %v", err)
 	}

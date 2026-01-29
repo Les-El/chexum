@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/afero"
 )
@@ -11,9 +12,9 @@ import (
 // Workspace manages a dedicated temporary area for application operations.
 // It uses Afero for filesystem abstraction, allowing for in-memory or disk-based storage.
 type Workspace struct {
-	Fs      afero.Fs
-	Root    string
-	isMem   bool
+	Fs    afero.Fs
+	Root  string
+	isMem bool
 }
 
 // NewWorkspace creates a new workspace. If useMem is true, it uses an in-memory filesystem.
@@ -61,17 +62,23 @@ func (w *Workspace) Cleanup() error {
 
 // WriteFile is a helper to write data to the workspace.
 func (w *Workspace) WriteFile(filename string, data []byte) error {
+	if strings.Contains(filename, "..") {
+		return fmt.Errorf("path traversal not allowed: %s", filename)
+	}
 	path := w.Path(filename)
 	dir := filepath.Dir(path)
-	
+
 	if err := w.Fs.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	
+
 	return afero.WriteFile(w.Fs, path, data, 0644)
 }
 
 // ReadFile is a helper to read data from the workspace.
 func (w *Workspace) ReadFile(filename string) ([]byte, error) {
+	if strings.Contains(filename, "..") {
+		return nil, fmt.Errorf("path traversal not allowed: %s", filename)
+	}
 	return afero.ReadFile(w.Fs, w.Path(filename))
 }

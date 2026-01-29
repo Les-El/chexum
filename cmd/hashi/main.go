@@ -16,6 +16,8 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,6 +26,7 @@ import (
 	"github.com/Les-El/hashi/internal/config"
 	"github.com/Les-El/hashi/internal/conflict"
 	"github.com/Les-El/hashi/internal/console"
+	"github.com/Les-El/hashi/internal/diagnostics"
 	"github.com/Les-El/hashi/internal/errors"
 	"github.com/Les-El/hashi/internal/hash"
 	"github.com/Les-El/hashi/internal/manifest"
@@ -62,6 +65,11 @@ func run() int {
 	}
 	defer cleanup()
 
+	// Diagnostics mode (Run before any other logic to debug environment/args)
+	if cfg.Test {
+		return diagnostics.RunDiagnostics(cfg, streams)
+	}
+
 	if len(warnings) > 0 {
 		fmt.Fprint(streams.Err, conflict.FormatAllWarnings(warnings))
 	}
@@ -90,9 +98,9 @@ func performProactiveCleanup(cfg *config.Config) {
 	// We do this after parsing args so we can respect cfg.Quiet.
 	if os.Getenv("HASHI_SKIP_CLEANUP") == "" {
 		cleanupMgr := checkpoint.NewCleanupManager(false)
-		if needsCleanup, usage := cleanupMgr.CheckTmpfsUsage(85.0); needsCleanup {
+		if needsCleanup, usage := cleanupMgr.CheckStorageUsage(85.0); needsCleanup {
 			if !cfg.Quiet {
-				fmt.Fprintf(os.Stderr, "Notice: Tmpfs usage is %.1f%%. Cleaning up temporary files...\n", usage)
+				fmt.Fprintf(os.Stderr, "Notice: Storage usage is %.1f%%. Cleaning up temporary files...\n", usage)
 			}
 			cleanupMgr.CleanupTemporaryFiles()
 		}
@@ -188,12 +196,38 @@ func runStandardHashingMode(cfg *config.Config, colorHandler *color.Handler, str
 	}
 
 	start := time.Now()
-	for _, path := range cfg.Files {
-		processFile(path, computer, results, bar, cfg, streams, errHandler)
+	// Parallel processing with resource hardening
+	// Parallel processing with resource hardening
+	numWorkers := calculateWorkers(cfg.Jobs, runtime.NumCPU())
+
+	resultChan := computer.ComputeBatch(cfg.Files, numWorkers)
+	for entry := range resultChan {
+		processEntry(entry, results, bar, cfg, streams, errHandler)
 	}
 	results.Duration = time.Since(start)
 
-	results.Matches, results.Unmatched = groupResults(results.Entries)
+	// Parallel execution shuffles results, so we restore the order to match input files.
+	// This ensures deterministic output.
+	if len(results.Entries) > 1 {
+		order := make(map[string]int, len(cfg.Files))
+		for i, p := range cfg.Files {
+			order[p] = i
+		}
+		sort.Slice(results.Entries, func(i, j int) bool {
+			return order[results.Entries[i].Original] < order[results.Entries[j].Original]
+		})
+	}
+
+	// Optimization: Only group results if the output format requires it.
+	// Boolean mode always needs grouping to detect uniqueness.
+	if cfg.Bool || (cfg.OutputFormat != "jsonl" && cfg.OutputFormat != "plain" && !cfg.PreserveOrder) {
+		results.Matches, results.Unmatched = groupResults(results.Entries)
+	} else {
+		// If not grouping, all entries are technically "unmatched" for the sake of simplicity
+		// although some formatters might just use results.Entries directly.
+		results.Unmatched = results.Entries
+	}
+
 	outputResults(results, cfg, streams)
 
 	// Save manifest if requested
@@ -220,19 +254,18 @@ func setupProgressBar(cfg *config.Config, streams *console.Streams) *progress.Ba
 	return nil
 }
 
-func processFile(path string, computer *hash.Computer, results *hash.Result, bar *progress.Bar, cfg *config.Config, streams *console.Streams, errHandler *errors.Handler) {
-	entry, err := computer.ComputeFile(path)
-	if err != nil {
-		results.Errors = append(results.Errors, err)
-		results.Entries = append(results.Entries, hash.Entry{Original: path, Error: err})
+func processEntry(entry hash.Entry, results *hash.Result, bar *progress.Bar, cfg *config.Config, streams *console.Streams, errHandler *errors.Handler) {
+	if entry.Error != nil {
+		results.Errors = append(results.Errors, entry.Error)
+		results.Entries = append(results.Entries, entry)
 		if !cfg.Quiet {
 			if bar != nil && bar.IsEnabled() {
 				fmt.Fprint(streams.Err, "\r\033[K")
 			}
-			fmt.Fprintln(streams.Err, errHandler.FormatError(err))
+			fmt.Fprintln(streams.Err, errHandler.FormatError(entry.Error))
 		}
 	} else {
-		results.Entries = append(results.Entries, *entry)
+		results.Entries = append(results.Entries, entry)
 		results.FilesProcessed++
 		results.BytesProcessed += entry.Size
 	}
@@ -489,4 +522,37 @@ func estimateTime(size int64) string {
 		return "< 1s"
 	}
 	return time.Duration(seconds * float64(time.Second)).Round(time.Second).String()
+}
+
+// calculateWorkers determines the optimal number of worker threads.
+// It implements the "Neighborhood Policy":
+// - If jobs > 0 (Explicit): Respect user request (trusting they know what they do).
+// - If jobs == 0 (Auto):
+//   - Reserve 1 core for systems with <= 4 CPUs.
+//   - Reserve 2 cores for systems with > 4 CPUs.
+//   - Cap at 32 workers max to prevent context switching storms.
+//   - Ensure at least 1 worker is always active.
+func calculateWorkers(requested, available int) int {
+	// Explicit mode: User controls the throttle.
+	if requested > 0 {
+		return requested
+	}
+
+	// Auto mode: Safe defaults.
+	var workers int
+	if available <= 4 {
+		workers = available - 1
+	} else {
+		workers = available - 2
+	}
+
+	// Hard ceilings and floors
+	if workers > 32 {
+		workers = 32
+	}
+	if workers < 1 {
+		workers = 1
+	}
+
+	return workers
 }

@@ -30,10 +30,11 @@ func TestStress_LargeProjectAnalysis(t *testing.T) {
 
 	ctx := context.Background()
 	analyzer := NewCodeAnalyzer()
+	ws, _ := NewWorkspace(true)
 
 	// Measure performance
 	start := time.Now()
-	issues, err := analyzer.Analyze(ctx, tmpDir)
+	issues, err := analyzer.Analyze(ctx, tmpDir, ws)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -61,8 +62,9 @@ func TestError_PermissionDenied(t *testing.T) {
 
 	ctx := context.Background()
 	analyzer := NewCodeAnalyzer()
+	ws, _ := NewWorkspace(true)
 
-	_, err := analyzer.Analyze(ctx, noReadDir)
+	_, err := analyzer.Analyze(ctx, noReadDir, ws)
 	// We expect either an error or for it to skip gracefully
 	if err != nil {
 		t.Logf("Got expected error for permission denied: %v", err)

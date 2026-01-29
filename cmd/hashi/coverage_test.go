@@ -296,15 +296,19 @@ func TestRunDryRunMode_Coverage(t *testing.T) {
 	})
 }
 
-func TestProcessFile_Error_Coverage(t *testing.T) {
+func TestProcessEntry_Error_Coverage(t *testing.T) {
 	colorHandler := color.NewColorHandler()
 	errHandler := errors.NewErrorHandler(colorHandler)
 	var outBuf, errBuf bytes.Buffer
 	streams := &console.Streams{Out: &outBuf, Err: &errBuf}
-	computer, _ := hash.NewComputer("sha256")
 	results := &hash.Result{}
 
-	processFile("non_existent", computer, results, nil, &config.Config{}, streams, errHandler)
+	entry := hash.Entry{
+		Original: "non_existent",
+		Error:    os.ErrNotExist,
+	}
+
+	processEntry(entry, results, nil, &config.Config{}, streams, errHandler)
 	if len(results.Errors) == 0 {
 		t.Error("Expected error in results")
 	}

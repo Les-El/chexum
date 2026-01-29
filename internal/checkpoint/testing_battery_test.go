@@ -2,6 +2,7 @@ package checkpoint
 
 import (
 	"context"
+	"go/ast"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +29,8 @@ func TestTestingBattery_Analyze(t *testing.T) {
 
 	tb := NewTestingBattery()
 	ctx := context.Background()
-	_, err := tb.Analyze(ctx, "../../")
+	ws, _ := NewWorkspace(true)
+	_, err := tb.Analyze(ctx, "../../", ws)
 	if err != nil {
 		t.Errorf("Analyze failed: %v", err)
 	}
@@ -41,8 +43,9 @@ func TestCheckTestReliability(t *testing.T) {
 
 	tb := NewTestingBattery()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
-	_, err := tb.CheckTestReliability(ctx, "../../")
+	_, err := tb.CheckTestReliability(ctx, "../../", ws)
 	if err != nil {
 		t.Logf("CheckTestReliability failed: %v", err)
 	}
@@ -51,8 +54,9 @@ func TestCheckTestReliability(t *testing.T) {
 func TestIdentifyLowCoverage(t *testing.T) {
 	tb := NewTestingBattery()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
-	_, err := tb.IdentifyLowCoverage(ctx, "../../")
+	_, err := tb.IdentifyLowCoverage(ctx, "../../", ws)
 	if err != nil {
 		t.Logf("IdentifyLowCoverage failed: %v", err)
 	}
@@ -61,9 +65,10 @@ func TestIdentifyLowCoverage(t *testing.T) {
 func TestCreateUnitTests(t *testing.T) {
 	tb := NewTestingBattery()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
 	t.Run("Basic", func(t *testing.T) {
-		_, err := tb.CreateUnitTests(ctx, "../../")
+		_, err := tb.CreateUnitTests(ctx, "../../", ws)
 		if err != nil {
 			t.Logf("CreateUnitTests failed: %v", err)
 		}
@@ -78,7 +83,7 @@ func (t T) ValueMethod() {}
 func Exported() {}
 `
 		os.WriteFile(filepath.Join(tmpDir, "file.go"), []byte(code), 0644)
-		
+
 		testCode := `package test
 import "testing"
 func TestT_Method(t *testing.T) {}
@@ -86,8 +91,8 @@ func TestT_ValueMethod(t *testing.T) {}
 func TestExported(t *testing.T) {}
 `
 		os.WriteFile(filepath.Join(tmpDir, "file_test.go"), []byte(testCode), 0644)
-		
-		issues, err := tb.CreateUnitTests(ctx, tmpDir)
+
+		issues, err := tb.CreateUnitTests(ctx, tmpDir, ws)
 		if err != nil {
 			t.Fatalf("CreateUnitTests failed: %v", err)
 		}
@@ -100,18 +105,34 @@ func TestExported(t *testing.T) {}
 func TestBuildIntegrationTests(t *testing.T) {
 	tb := NewTestingBattery()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
-	_, err := tb.BuildIntegrationTests(ctx, "../../")
+	_, err := tb.BuildIntegrationTests(ctx, "../../", ws)
 	if err != nil {
 		t.Logf("BuildIntegrationTests failed: %v", err)
+	}
+}
+
+func TestIsExportedType(t *testing.T) {
+	tb := NewTestingBattery()
+	// Create mock AST types for testing
+	if !tb.isExportedType(&ast.Ident{Name: "Exported"}) {
+		t.Error("expected true for Exported")
+	}
+	if tb.isExportedType(&ast.Ident{Name: "unexported"}) {
+		t.Error("expected false for unexported")
+	}
+	if !tb.isExportedType(&ast.StarExpr{X: &ast.Ident{Name: "Exported"}}) {
+		t.Error("expected true for *Exported")
 	}
 }
 
 func TestImplementPropertyTests(t *testing.T) {
 	tb := NewTestingBattery()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
-	_, err := tb.ImplementPropertyTests(ctx, "../../")
+	_, err := tb.ImplementPropertyTests(ctx, "../../", ws)
 	if err != nil {
 		t.Logf("ImplementPropertyTests failed: %v", err)
 	}
@@ -120,8 +141,9 @@ func TestImplementPropertyTests(t *testing.T) {
 func TestCreateBenchmarks(t *testing.T) {
 	tb := NewTestingBattery()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
-	_, err := tb.CreateBenchmarks(ctx, "../../")
+	_, err := tb.CreateBenchmarks(ctx, "../../", ws)
 	if err != nil {
 		t.Logf("CreateBenchmarks failed: %v", err)
 	}

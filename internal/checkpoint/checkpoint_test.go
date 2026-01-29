@@ -2,6 +2,7 @@ package checkpoint
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -11,7 +12,7 @@ type MockEngine struct {
 }
 
 func (m *MockEngine) Name() string { return m.name }
-func (m *MockEngine) Analyze(ctx context.Context, path string) ([]Issue, error) {
+func (m *MockEngine) Analyze(ctx context.Context, path string, ws *Workspace) ([]Issue, error) {
 	return m.issues, nil
 }
 
@@ -26,6 +27,23 @@ func TestIssueCollector(t *testing.T) {
 	collected := collector.Issues()
 	if len(collected) != 2 {
 		t.Errorf("expected 2 issues, got %d", len(collected))
+	}
+}
+
+func TestDiscoverPackageByName(t *testing.T) {
+	// Test known packages
+	pkg, err := discoverPackageByName("../../", "config")
+	if err != nil {
+		t.Errorf("failed to discover config: %v", err)
+	}
+	if !strings.Contains(pkg, "internal/config") {
+		t.Errorf("expected internal/config, got %s", pkg)
+	}
+
+	// Test non-existent package
+	_, err = discoverPackageByName("../../", "non-existent")
+	if err == nil {
+		t.Error("expected error for non-existent package")
 	}
 }
 
@@ -55,11 +73,12 @@ func TestSystemIntegration(t *testing.T) {
 		t.Log("No issues found, which is possible but unlikely in this repo.")
 	}
 
+	ws, _ := NewWorkspace(true)
 	flagSystem := NewFlagSystem()
-	flags, _ := flagSystem.CatalogFlags(ctx, "../../")
-	flags, _ = flagSystem.ClassifyImplementation(ctx, "../../", flags)
-	flags, _ = flagSystem.PerformCrossReferenceAnalysis(ctx, "../../", flags)
-	flags, _ = flagSystem.DetectConflicts(ctx, flags)
+	flags, _ := flagSystem.CatalogFlags(ctx, "../../", ws)
+	flags, _ = flagSystem.ClassifyImplementation(ctx, "../../", ws, flags)
+	flags, _ = flagSystem.PerformCrossReferenceAnalysis(ctx, "../../", ws, flags)
+	flags, _ = flagSystem.DetectConflicts(ctx, ws, flags)
 
 	reporter := NewReporter()
 	reporter.Aggregate(issues, flags)

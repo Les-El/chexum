@@ -4,31 +4,6 @@ import (
 	"testing"
 )
 
-func TestCollectFormatIntent_Detailed(t *testing.T) {
-	tests := []struct {
-		name     string
-		args     []string
-		explicit string
-		want     string
-		wantPos  int
-	}{
-		{"ShortFlagWithEquals", []string{"-f=json"}, "", "json", 0},
-		{"ShortFlagSeparate", []string{"-f", "json"}, "", "json", 0},
-		{"LongFlagWithEquals", []string{"--format=plain"}, "", "plain", 0},
-		{"ExplicitFormatOnly", []string{}, "json", "json", -1},
-		{"EmptyArgsAndExplicit", []string{}, "", "", -1},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, gotPos := collectFormatIntent(tt.args, tt.explicit)
-			if got != tt.want || gotPos != tt.wantPos {
-				t.Errorf("collectFormatIntent(%v, %q) = (%q, %d); want (%q, %d)", tt.args, tt.explicit, got, gotPos, tt.want, tt.wantPos)
-			}
-		})
-	}
-}
-
 func TestFormatAllWarnings_Empty(t *testing.T) {
 	if FormatAllWarnings(nil) != "" {
 		t.Error("Expected empty string for nil warnings")

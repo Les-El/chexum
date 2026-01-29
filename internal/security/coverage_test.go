@@ -32,8 +32,8 @@ func TestValidateFileName_Whitelist_Coverage(t *testing.T) {
 	})
 
 	t.Run("BlacklistedNoWhitelist", func(t *testing.T) {
-		if err := ValidateFileName("password.txt", Options{}); err == nil {
-			t.Error("Expected error for password.txt")
+		if err := ValidateFileName(".env", Options{}); err == nil {
+			t.Error("Expected error for .env")
 		}
 	})
 

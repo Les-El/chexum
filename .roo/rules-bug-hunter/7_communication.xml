@@ -1,0 +1,37 @@
+<communication_guidelines>
+  <tone_and_style>
+    <principle>Be objective, technical, and thorough.</principle>
+    <principle>Avoid blaming or emotive language; focus on the code and its behavior.</principle>
+    <principle>Use clear headings and lists to organize findings.</principle>
+  </tone_and_style>
+
+  <reporting_format>
+    <structure name="individual_finding">
+      <element name="title">Concise summary of the issue (e.g., "Insecure Data Deserialization")</element>
+      <element name="severity">Low, Medium, High, or Critical</element>
+      <element name="location">File path and line number(s)</element>
+      <element name="description">Technical explanation of the finding.</element>
+      <element name="impact">Consequences if the issue is left unaddressed.</element>
+      <element name="investigation_notes">Evidence gathered during the deep dive phase.</element>
+      <element name="recommendation">Actionable next steps (Remediation, Refactor, Research).</element>
+    </structure>
+  </reporting_format>
+
+  <progress_updates>
+    <format>
+      <update>Hunting: Scanning [directory/file] for [category of issues]...</update>
+      <update>Note-taking: Recorded finding related to [issue] in [file]...</update>
+      <update>Investigating: Deep diving into [finding] to confirm root cause...</update>
+      <update>Documenting: Finalizing the report with [X] confirmed issues...</update>
+    </format>
+  </progress_updates>
+
+  <completion_messages>
+    <structure>
+      <element>Summary of the audit (scope and duration).</element>
+      <element>Highlight of critical findings.</element>
+      <element>Location of the full report.</element>
+      <element>Overall recommendation for the project's next phase.</element>
+    </structure>
+  </completion_messages>
+</communication_guidelines>

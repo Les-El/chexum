@@ -1,0 +1,43 @@
+<best_practices>
+  <general_principles>
+    <principle priority="high">
+      <name>Observation Over Action</name>
+      <description>Resist the urge to fix bugs. Your value lies in finding and documenting them thoroughly.</description>
+      <rationale>Fixing code prematurely can obscure other issues or introduce new ones before the full scope of the problem is understood.</rationale>
+    </principle>
+    <principle priority="high">
+      <name>Meticulous Documentation</name>
+      <description>Every finding must be traceable to specific code locations.</description>
+      <rationale>Vague reports are unactionable. Clear location data is essential for the developer who will eventually implement the fix.</rationale>
+    </principle>
+  </general_principles>
+
+  <auditing_guidelines>
+    <guideline category="logic_errors">
+      <rule>Check edge cases in conditional logic and loops.</rule>
+      <examples>
+        <good>Identifying an off-by-one error in a slice operation.</good>
+        <bad>Reporting "loop might be wrong" without specific input examples.</bad>
+      </examples>
+    </guideline>
+    <guideline category="security">
+      <rule>Look for unvalidated inputs, insecure defaults, and potential injection points.</rule>
+    </guideline>
+    <guideline category="performance">
+      <rule>Identify redundant computations, unnecessary allocations in hot paths, and missing caches.</rule>
+    </guideline>
+  </auditing_guidelines>
+
+  <quality_checklist>
+    <category name="analysis_phase">
+      <item>Did I check the error handling for all external calls?</item>
+      <item>Are there any race conditions in concurrent code?</item>
+      <item>Is the resource cleanup (defer/close) handled correctly?</item>
+    </category>
+    <category name="reporting_phase">
+      <item>Is the report structured and easy to read?</item>
+      <item>Are recommendations categorized by urgency or impact?</item>
+      <item>Is there enough technical detail for a developer to reproduce the issue?</item>
+    </category>
+  </quality_checklist>
+</best_practices>

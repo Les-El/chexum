@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 	}
 
 	// Build the binary for integration tests
-	tmpDir, err := os.MkdirTemp("", "checkpoint-integration-build-*")
+	tmpDir, err := os.MkdirTemp("", "h-build-*")
 	if err != nil {
 		fmt.Printf("Failed to create temp dir for build: %v\n", err)
 		os.Exit(1)
@@ -41,8 +41,12 @@ func TestMain(m *testing.M) {
 	oldPath := os.Getenv("PATH")
 	os.Setenv("PATH", tmpDir+string(os.PathListSeparator)+oldPath)
 
+	// Prevent tests from triggering global cleanup
+	os.Setenv("HASHI_SKIP_CLEANUP", "true")
+	defer os.Unsetenv("HASHI_SKIP_CLEANUP")
+
 	code := m.Run()
-	
+
 	os.RemoveAll(tmpDir)
 	os.Setenv("PATH", oldPath)
 	cleanupTemporaryFiles()
@@ -110,12 +114,13 @@ func TestMainDirect(t *testing.T) {
 
 func cleanupTemporaryFiles() {
 	// Only remove temporary files created by tests, not active Go build artifacts
+	tmpDir := os.TempDir()
 	tmpPatterns := []string{
-		"/tmp/hashi-*",
-		"/tmp/checkpoint-*",
-		"/tmp/test-*",
+		filepath.Join(tmpDir, "hashi-*"),
+		filepath.Join(tmpDir, "checkpoint-*"),
+		filepath.Join(tmpDir, "test-*"),
 	}
-	
+
 	for _, pattern := range tmpPatterns {
 		matches, _ := filepath.Glob(pattern)
 		for _, match := range matches {
@@ -149,7 +154,8 @@ func TestRunAnalysis(t *testing.T) {
 		checkpoint.NewCodeAnalyzer(),
 		checkpoint.NewDocAuditor(),
 	}
-	issues, _, err := runAnalysis(ctx, engines)
+	cleanupMgr := checkpoint.NewCleanupManager(false)
+	issues, _, err := runAnalysis(ctx, engines, cleanupMgr)
 
 	if err != nil {
 		t.Fatalf("runAnalysis failed: %v", err)
@@ -164,7 +170,7 @@ func TestRunAnalysis(t *testing.T) {
 		engines := []checkpoint.AnalysisEngine{
 			&failingEngine{},
 		}
-		_, _, err := runAnalysis(ctx, engines)
+		_, _, err := runAnalysis(ctx, engines, cleanupMgr)
 		if err == nil {
 			t.Error("expected error from failing engine, got nil")
 		}
@@ -174,7 +180,7 @@ func TestRunAnalysis(t *testing.T) {
 type failingEngine struct{}
 
 func (f *failingEngine) Name() string { return "FailingEngine" }
-func (f *failingEngine) Analyze(ctx context.Context, path string) ([]checkpoint.Issue, error) {
+func (f *failingEngine) Analyze(ctx context.Context, path string, ws *checkpoint.Workspace) ([]checkpoint.Issue, error) {
 	return nil, fmt.Errorf("intentional failure")
 }
 
@@ -194,7 +200,11 @@ func TestGenerateReports(t *testing.T) {
 		},
 	}
 
-	reports := generateReports(ctx, issues, flags)
+	cleanup := checkpoint.NewCleanupManager(false)
+	reports, err := generateReports(ctx, issues, flags, cleanup)
+	if err != nil {
+		t.Fatalf("generateReports failed: %v", err)
+	}
 
 	if reports.plan == "" {
 		t.Error("expected remediation plan report, got empty string")
@@ -262,7 +272,7 @@ func TestSaveReports(t *testing.T) {
 		// Block major_checkpoint directory creation
 		blockedDir := filepath.Join(tmpDir, "major_checkpoint")
 		os.WriteFile(blockedDir, []byte("I am a file"), 0644)
-		
+
 		err := saveReports(reports)
 		if err == nil {
 			t.Error("expected error when mkdir fails, got nil")
@@ -276,7 +286,7 @@ func TestSaveReports(t *testing.T) {
 		// Block one of the files with a directory
 		blockedFile := filepath.Join(latestDir, "findings_remediation_plan.md")
 		os.MkdirAll(blockedFile, 0755)
-		
+
 		err := saveReports(reports)
 		if err == nil {
 			t.Error("expected error when WriteFile fails, got nil")
@@ -290,7 +300,7 @@ func TestSaveReports(t *testing.T) {
 		os.MkdirAll(filepath.Dir(snapshotsDir), 0755)
 		// Block snapshots directory with a file
 		os.WriteFile(snapshotsDir, []byte("blocker"), 0644)
-		
+
 		err := saveReports(reports)
 		if err == nil {
 			t.Error("expected error when CreateSnapshot fails, got nil")
@@ -309,7 +319,7 @@ func TestSaveReports(t *testing.T) {
 		archiveRoot := filepath.Join("major_checkpoint", "archive")
 		os.MkdirAll(filepath.Dir(archiveRoot), 0755)
 		os.WriteFile(archiveRoot, []byte("blocker"), 0644)
-		
+
 		stdout, _, err := testutil.CaptureOutput(func() {
 			err := saveReports(reports)
 			if err != nil {
@@ -363,7 +373,7 @@ func TestRun(t *testing.T) {
 		// Block saveReports
 		os.RemoveAll(filepath.Join(tmpDir, "major_checkpoint"))
 		testutil.CreateFile(t, tmpDir, "major_checkpoint", "blocker")
-		
+
 		stdout, _, err := testutil.CaptureOutput(func() {
 			if err := run(); err == nil {
 				t.Error("expected error from run() when saveReports fails, got nil")
@@ -375,9 +385,31 @@ func TestRun(t *testing.T) {
 			t.Fatalf("CaptureOutput failed: %v", err)
 		}
 		// If it failed at analysis, it might be due to missing files in the mock env
-		if !strings.Contains(stdout, "Attempting cleanup after report generation failure...") && 
-		   !strings.Contains(stdout, "Attempting cleanup after analysis failure...") {
+		if !strings.Contains(stdout, "Attempting cleanup after report generation failure...") &&
+			!strings.Contains(stdout, "Attempting cleanup after analysis failure...") {
 			t.Errorf("expected stdout to contain a failure cleanup message, got: %s", stdout)
 		}
 	})
+}
+
+func TestHandleRunFailure(t *testing.T) {
+	tmpDir, cleanup := testutil.TempDir(t)
+	defer cleanup()
+
+	cm := checkpoint.NewCleanupManager(false)
+	cm.SetBaseDir(tmpDir)
+
+	// Minimal smoke test for handleRunFailure
+	handleRunFailure(cm, "test-phase", fmt.Errorf("test-error"))
+}
+
+func TestCheckInitialResources(t *testing.T) {
+	tmpDir, cleanup := testutil.TempDir(t)
+	defer cleanup()
+
+	cm := checkpoint.NewCleanupManager(false)
+	cm.SetBaseDir(tmpDir)
+
+	// Should not panic or error
+	checkInitialResources(cm)
 }

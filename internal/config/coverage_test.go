@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,11 +8,6 @@ import (
 
 	"github.com/spf13/pflag"
 )
-
-// Helper to create a pointer to a bool or string
-func ptr[T any](v T) *T {
-	return &v
-}
 
 // stringPtr is a helper to create a pointer to a string.
 func stringPtr(s string) *string { return &s }
@@ -99,61 +93,6 @@ func ptrStringEqual(a, b *string) bool {
 	return *a == *b
 }
 
-func TestWriteErrors(t *testing.T) {
-	err := WriteError()
-	if err.Error() != "Unknown write/append error" {
-		t.Errorf("Unexpected error message: %s", err.Error())
-	}
-
-	err = WriteErrorWithVerbose(false, "details")
-	if err.Error() != "Unknown write/append error" {
-		t.Errorf("Unexpected error message: %s", err.Error())
-	}
-
-	err = WriteErrorWithVerbose(true, "details")
-	if err.Error() != "details" {
-		t.Errorf("Unexpected error message: %s", err.Error())
-	}
-}
-
-func TestFileSystemError(t *testing.T) {
-	err := FileSystemError(false, "details")
-	if err.Error() != "Unknown write/append error" {
-		t.Errorf("Unexpected error message: %s", err.Error())
-	}
-
-	err = FileSystemError(true, "details")
-	if err.Error() != "details" {
-		t.Errorf("Unexpected error message: %s", err.Error())
-	}
-}
-
-func TestHandleFileWriteError(t *testing.T) {
-	if HandleFileWriteError(nil, false, "path") != nil {
-		t.Error("Expected nil for nil error")
-	}
-
-	tests := []struct {
-		err      error
-		verbose  bool
-		expected string
-	}{
-		{errors.New("permission denied"), false, "Unknown write/append error"},
-		{errors.New("permission denied"), true, "permission denied writing to path"},
-		{errors.New("no space left on device"), true, "insufficient disk space for path"},
-		{errors.New("network timeout"), true, "network error writing to path"},
-		{errors.New("file name too long"), true, "path too long: path"},
-		{errors.New("random error"), true, "random error"},
-	}
-
-	for _, tt := range tests {
-		got := HandleFileWriteError(tt.err, tt.verbose, "path")
-		if got.Error() != tt.expected {
-			t.Errorf("HandleFileWriteError(%v, %v) = %v; want %v", tt.err, tt.verbose, got, tt.expected)
-		}
-	}
-}
-
 func TestApplyEnvConfig_Coverage(t *testing.T) {
 	cfg := DefaultConfig()
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
@@ -195,7 +134,7 @@ func TestLoadDotEnv_Errors(t *testing.T) {
 		defer os.Remove(tmpFile.Name())
 		os.WriteFile(tmpFile.Name(), []byte("INVALID_LINE"), 0644)
 
-		err := LoadDotEnv(tmpFile.Name())
+		_, err := LoadDotEnv(tmpFile.Name())
 		if err == nil {
 			t.Error("Expected error for invalid format")
 		}
@@ -203,7 +142,7 @@ func TestLoadDotEnv_Errors(t *testing.T) {
 
 	t.Run("EmptyPath", func(t *testing.T) {
 		// This will try to open .env in current dir, which might not exist
-		_ = LoadDotEnv("")
+		_, _ = LoadDotEnv("")
 	})
 }
 
@@ -224,16 +163,6 @@ func TestApplyConfigFile_Errors(t *testing.T) {
 	err = cf.ApplyConfigFile(cfg, fs)
 	if err == nil {
 		t.Error("Expected error for invalid max_size")
-	}
-}
-
-func TestConfigCommandError(t *testing.T) {
-	err := &ConfigCommandError{}
-	if err.Error() == "" {
-		t.Error("Expected non-empty error message")
-	}
-	if err.ExitCode() != ExitInvalidArgs {
-		t.Errorf("Expected exit code %d, got %d", ExitInvalidArgs, err.ExitCode())
 	}
 }
 

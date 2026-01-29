@@ -40,8 +40,8 @@ func testBlacklistedPaths(t *testing.T) {
 		path string
 		msg  string
 	}{
-		{"config.txt", "security pattern"},
-		{"secret.json", "security pattern"},
+		{"id_rsa.txt", "security pattern"},
+		{".git/config.txt", "security pattern"},
 		{".hashi/out.txt", "configuration directory"},
 	}
 	for _, tt := range tests {
@@ -75,7 +75,7 @@ var validateConfigSecurityTests = []struct {
 	},
 	{
 		name:      "unsafe log file - default blacklist",
-		logFile:   "config.txt",
+		logFile:   "id_rsa.txt",
 		shouldErr: true,
 		errMsg:    "log file",
 	},
@@ -145,9 +145,9 @@ func testValidateFileName(t *testing.T) {
 
 		{"safe.txt", false},
 
-		{"config.txt", true},
+		{".env", true},
 
-		{"secret.txt", true},
+		{".hashi.toml", true},
 	}
 
 	for _, tt := range tests {
@@ -199,9 +199,9 @@ func testValidateDirPath(t *testing.T) {
 
 		{"safe/file.txt", false},
 
-		{"config/file.txt", true},
+		{".git/file.txt", true},
 
-		{"secret/file.txt", true},
+		{".ssh/file.txt", true},
 	}
 
 	for _, tt := range tests {

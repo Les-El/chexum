@@ -2,6 +2,7 @@ package checkpoint
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -46,15 +47,44 @@ func NewRunner(engines []AnalysisEngine) *Runner {
 	}
 }
 
-// Run executes all registered engines.
+// Run executes all registered engines concurrently.
 func (r *Runner) Run(ctx context.Context, path string) error {
-	for _, engine := range r.engines {
-		issues, err := engine.Analyze(ctx, path)
-		if err != nil {
-			return err
-		}
-		r.collector.Collect(issues)
+	ws, err := NewWorkspace(false) // Use disk-based workspace for analysis
+	if err != nil {
+		return err
 	}
+	defer ws.Cleanup()
+
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var errors []error
+
+	for _, engine := range r.engines {
+		wg.Add(1)
+		go func(eng AnalysisEngine) {
+			defer wg.Done()
+			issues, err := eng.Analyze(ctx, path, ws)
+			if err != nil {
+				errMu.Lock()
+				errors = append(errors, fmt.Errorf("engine %s failed: %w", eng.Name(), err))
+				errMu.Unlock()
+				return
+			}
+			r.collector.Collect(issues)
+		}(engine)
+	}
+
+	wg.Wait()
+
+	if len(errors) > 0 {
+		// Aggregate errors into a single error
+		var combinedErr string
+		for _, e := range errors {
+			combinedErr += e.Error() + "; "
+		}
+		return fmt.Errorf("analysis engines encountered errors: %s", combinedErr)
+	}
+
 	return nil
 }
 

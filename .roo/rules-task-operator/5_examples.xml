@@ -1,0 +1,39 @@
+<complete_examples>
+  <example name="feature_implementation_with_task_list">
+    <scenario>Implementing a new "Config Export" feature using a task list in feature_tasks.md.</scenario>
+    <user_request>Start working on the tasks in feature_tasks.md.</user_request>
+    <workflow>
+      <step number="1">
+        <description>Analyze the task list and codebase</description>
+        <approach>
+          Read feature_tasks.md. 
+          Search for existing configuration and export logic (internal/config, internal/output).
+          Result: Found that "JSON export" is already partially implemented, suggesting a re-ordering of tasks to leverage existing code first.
+        </approach>
+      </step>
+      <step number="2">
+        <description>Execute Task 1: Design Export Interface</description>
+        <approach>
+          Update [ ] Task 1: Design Export Interface to [x] in feature_tasks.md.
+          Implement `Exporter` interface in `internal/output/exporter.go`.
+        </approach>
+      </step>
+      <step number="3">
+        <description>Execute Task 2: Implement JSON Exporter</description>
+        <approach>
+          Realized that the task list didn't specify the output directory. 
+          PAUSE: Ask the user "Should exported configs go to a default directory like './exports' or be configurable?"
+          User: "Make it configurable via a flag."
+          Action: Added a sub-task to Task 2: "[ ] Add --output-dir flag to CLI".
+        </approach>
+      </step>
+      <step number="4">
+        <description>Maintain continuity</description>
+        <approach>
+          Append to "Development Notes" in feature_tasks.md:
+          "Decided to make export directory configurable via --output-dir based on user feedback. JSON implementation leverages internal/config/types.go."
+        </approach>
+      </step>
+    </workflow>
+  </example>
+</complete_examples>

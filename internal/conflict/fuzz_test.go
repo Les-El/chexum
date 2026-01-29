@@ -51,7 +51,8 @@ func TestFuzzFlagConflicts(t *testing.T) {
 		}
 
 		// Execute resolution
-		_, _, err := conflict.ResolveState(args, flagSet, "default")
+		// Since we don't care about order here, just pass whatever
+		_, _, err := conflict.ResolveState(flagSet, "default")
 		if err != nil {
 			t.Errorf("Fuzz failed with args %v: %v", args, err)
 		}

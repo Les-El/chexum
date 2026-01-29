@@ -1,0 +1,67 @@
+package config
+
+import (
+	"testing"
+)
+
+func TestClassifyArguments(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		algorithm  string
+		wantFiles  int
+		wantHashes int
+		wantErr    bool
+	}{
+		{"files only", []string{"go.mod", "go.sum"}, "sha256", 2, 0, false},
+		{"hashes only", []string{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, "sha256", 0, 1, false},
+		{"mixed", []string{"go.mod", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, "sha256", 1, 1, false},
+		{"stdin", []string{"-"}, "sha256", 1, 0, false},
+		{"invalid hash length for algo", []string{"d41d8cd98f00b204e9800998ecf8427e"}, "sha256", 0, 0, true},
+		{"invalid hex", []string{"not-a-hash-but-looks-like-one-if-it-had-hex-only-0123456789abcdefg"}, "sha256", 1, 0, false},
+		{"hash like but unknown length", []string{"abcde"}, "sha256", 0, 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			files, hashes, err := ClassifyArguments(tt.args, tt.algorithm)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ClassifyArguments() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if len(files) != tt.wantFiles {
+				t.Errorf("got %d files, want %d", len(files), tt.wantFiles)
+			}
+			if len(hashes) != tt.wantHashes {
+				t.Errorf("got %d hashes, want %d", len(hashes), tt.wantHashes)
+			}
+		})
+	}
+}
+
+func TestDetectHashAlgorithm(t *testing.T) {
+	tests := []struct {
+		hash string
+		want []string
+	}{
+		{"d41d8cd98f00b204e9800998ecf8427e", []string{"md5"}},
+		{"da39a3ee5e6b4b0d3255bfef95601890afd80709", []string{"sha1"}},
+		{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", []string{"sha256"}},
+		{"cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", []string{"sha512", "blake2b"}},
+		{"too-short", []string{}},
+		{"nothex", []string{}},
+	}
+
+	for _, tt := range tests {
+		got := detectHashAlgorithm(tt.hash)
+		if len(got) != len(tt.want) {
+			t.Errorf("detectHashAlgorithm(%s) = %v, want %v", tt.hash, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("detectHashAlgorithm(%s)[%d] = %s, want %s", tt.hash, i, got[i], tt.want[i])
+			}
+		}
+	}
+}

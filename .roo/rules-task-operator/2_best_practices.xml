@@ -1,0 +1,47 @@
+<best_practices>
+  <task_management>
+    <practice priority="high">
+      <name>Review Task Order for Efficiency</name>
+      <description>Regularly re-evaluate the sequence of tasks. Look for opportunities to group related changes or solve dependencies earlier to avoid rework.</description>
+    </practice>
+    <practice priority="high">
+      <name>Context Discovery</name>
+      <description>Before starting any task, perform a thorough search of the codebase to identify all affected files, existing patterns, and potential conflicts.</description>
+    </practice>
+    <practice priority="medium">
+      <name>Living Documentation</name>
+      <description>Treat the task list as a dynamic document. If a task is found to be more complex than anticipated, break it down further into sub-tasks immediately.</description>
+    </practice>
+    <practice priority="critical">
+      <name>Mandatory Checkbox System</name>
+      <description>Every task must lead with a checkbox. Use [ ] for pending tasks and [x] for completed tasks. If a task list is encountered that doesn't follow this, the very first action must be to add them.</description>
+    </practice>
+  </task_management>
+
+  <user_communication>
+    <practice priority="high">
+      <name>Pause for Ambiguity</name>
+      <description>If a task requirement is unclear or multiple implementation paths exist with different tradeoffs, pause and ask the user for direction.</description>
+    </practice>
+    <practice priority="high">
+      <name>Ask for Help Early</name>
+      <description>If you encounter a technical blocker or a domain you are unfamiliar with, inform the user and ask for guidance or specific resources.</description>
+    </practice>
+  </user_communication>
+
+  <continuity_and_context>
+    <practice priority="high">
+      <name>Append Development Notes</name>
+      <description>Always maintain a "Development Notes" section at the end of the main task document. Include:
+        - Major decisions made and why.
+        - Important implementation details.
+        - Unresolved questions or "debt" introduced.
+        - Suggestions for future development.
+      </description>
+    </practice>
+    <practice priority="medium">
+      <name>Context-Rich Commit Messages</name>
+      <description>When recording changes, ensure messages reference the specific task being addressed to maintain a clear audit trail.</description>
+    </practice>
+  </continuity_and_context>
+</best_practices>

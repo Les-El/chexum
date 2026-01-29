@@ -1,0 +1,53 @@
+<complete_examples>
+  <example name="auditing_a_go_function">
+    <scenario>
+      The Bug Hunter is asked to audit a newly implemented Go function for potential issues.
+    </scenario>
+
+    <workflow>
+      <step number="1">
+        <description>Hunting Phase</description>
+        <approach>
+          Read the function implementation in `internal/logic/calculator.go`. 
+          Notice that a division operation doesn't check for a zero divisor.
+        </approach>
+        <action>
+          Record a preliminary note in `bug_hunt_notes.md`:
+          "- [ ] calculator.go:42: Potential division by zero if 'input' is 0."
+        </action>
+      </step>
+
+      <step number="2">
+        <description>Investigation Phase</description>
+        <approach>
+          Trace the `input` parameter back to its source. 
+          See that it comes from a user-provided JSON field that isn't validated earlier in the chain.
+        </approach>
+        <action>
+          Update note:
+          "- [x] calculator.go:42: Confirmed. Input comes from API request and is not validated. Reproducible with `curl ... -d '{"val": 0}'`."
+        </action>
+      </step>
+
+      <step number="3">
+        <description>Documentation & Recommendation Phase</description>
+        <approach>
+          Formalize the finding in the final report.
+        </approach>
+        <action>
+          Add to `audit_report.md`:
+          "### Finding: Unvalidated Division by Zero
+          - Severity: High
+          - Location: internal/logic/calculator.go:42
+          - Description: The Divide() function performs division without checking if the divisor is zero.
+          - Impact: Application crash (panic) when receiving certain user inputs.
+          - Recommendation: Remediation. Add an explicit check for zero and return a descriptive error."
+        </action>
+      </step>
+    </workflow>
+
+    <completion>
+      The Bug Hunter presents the `audit_report.md` to the user and suggests handing off the remediation to the Code mode.
+    </completion>
+  </example>
+</complete_examples>

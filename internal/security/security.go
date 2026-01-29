@@ -7,10 +7,10 @@
 // a tool to overwrite its own security policy, the tool becomes a weapon.
 //
 // Hashi defends against this with two core mandates:
-// 1. READ-ONLY ON SOURCE: Hashi never, under any circumstances, modifies the
-//    files it is hashing.
-// 2. PROTECTED CONFIGURATION: Hashi cannot write output or logs to its own
-//    configuration files or directories.
+//  1. READ-ONLY ON SOURCE: Hashi never, under any circumstances, modifies the
+//     files it is hashing.
+//  2. PROTECTED CONFIGURATION: Hashi cannot write output or logs to its own
+//     configuration files or directories.
 //
 // This package implements these mandates through strict path validation,
 // extension whitelisting, and obfuscated error messages that prevent
@@ -19,6 +19,7 @@ package security
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -34,23 +35,19 @@ type Options struct {
 
 // Default blacklists
 var DefaultBlacklistFiles = []string{
-	"config",
-	"secret",
-	"key",
-	"password",
-	"credential",
 	".env",
 	".hashi.toml",
+	"*.key",
+	"*.pem",
+	"id_rsa",
+	"id_ed25519",
 }
 
 var DefaultBlacklistDirs = []string{
-	"config",
-	"secret",
-	"key",
-	"password",
-	"credential",
 	".git",
 	".ssh",
+	".aws",
+	".config/hashi",
 }
 
 // ValidateOutputPath ensures an output path is safe to write to.
@@ -75,9 +72,17 @@ func ValidateOutputPath(path string, opts Options) error {
 	}
 
 	// 2. Directory traversal check
-	if strings.Contains(path, "..") {
+	// We use Clean to resolve ".." and checks if it tries to escape boundaries
+	// strictly speaking, we just want to ensure we aren't being tricked.
+	// Simple string check is too aggressive (blocks "file..txt").
+	cleaned := filepath.Clean(path)
+	// If the path is relative and starts with "..", it's traversing up.
+	// But Clean("foo/../../bar") -> "../bar".
+	if strings.Contains(filepath.ToSlash(cleaned), "../") || filepath.Base(cleaned) == ".." {
 		return fmt.Errorf("directory traversal not allowed in output path")
 	}
+	// We also keep the original check for safety but strictly for path separators involved
+	// actually, let's remove the naive check and trust Clean + analysis.
 
 	// 3. File name validation
 	basename := filepath.Base(path)
@@ -88,6 +93,18 @@ func ValidateOutputPath(path string, opts Options) error {
 	// 4. Directory validation
 	if err := ValidateDirPath(path, opts); err != nil {
 		return err
+	}
+
+	// 5. Symlink check
+	// We must ensure that if the file exists, it is not a symlink.
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return formatSecurityError(opts.Verbose, "cannot write to symlink")
+		}
+	} else if !os.IsNotExist(err) {
+		// If we can't check it, fail safe
+		return fmt.Errorf("failed to check file status: %w", err)
 	}
 
 	return nil
@@ -138,7 +155,10 @@ func ValidateDirPath(path string, opts Options) error {
 	}
 
 	// 1. General directory traversal check for ALL paths
-	if strings.Contains(path, "..") {
+	// Replaced naive strings.Contains checks with strictly cleaned path inspection
+	cleaned := filepath.Clean(path)
+	// If the path is relative and starts with "..", it's traversing up.
+	if strings.Contains(filepath.ToSlash(cleaned), "../") || filepath.Base(cleaned) == ".." {
 		return formatSecurityError(opts.Verbose, "directory traversal not allowed in paths")
 	}
 
@@ -216,7 +236,9 @@ func isValidHex(s string) bool {
 
 // ResolveSafePath returns the absolute path while ensuring no traversal attempts.
 func ResolveSafePath(path string) (string, error) {
-	if strings.Contains(path, "..") {
+	// Use Clean to checking for traversal
+	cleaned := filepath.Clean(path)
+	if strings.Contains(filepath.ToSlash(cleaned), "../") || filepath.Base(cleaned) == ".." {
 		return "", fmt.Errorf("directory traversal not allowed in paths")
 	}
 	abs, err := filepath.Abs(path)

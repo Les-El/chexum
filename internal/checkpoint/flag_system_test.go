@@ -23,7 +23,8 @@ func TestFlagSystem_Name(t *testing.T) {
 func TestFlagSystem_Analyze(t *testing.T) {
 	fs := NewFlagSystem()
 	ctx := context.Background()
-	issues, err := fs.Analyze(ctx, "../../")
+	ws, _ := NewWorkspace(true)
+	issues, err := fs.Analyze(ctx, "../../", ws)
 	if err != nil {
 		t.Errorf("Analyze failed: %v", err)
 	}
@@ -35,7 +36,8 @@ func TestFlagSystem_Analyze(t *testing.T) {
 func TestCatalogFlags(t *testing.T) {
 	fs := NewFlagSystem()
 	ctx := context.Background()
-	_, err := fs.CatalogFlags(ctx, "../../")
+	ws, _ := NewWorkspace(true)
+	_, err := fs.CatalogFlags(ctx, "../../", ws)
 	if err != nil {
 		t.Logf("CatalogFlags failed (possibly config.go missing): %v", err)
 	}
@@ -44,9 +46,10 @@ func TestCatalogFlags(t *testing.T) {
 func TestClassifyImplementation(t *testing.T) {
 	fs := NewFlagSystem()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 	mockFlags := []FlagStatus{{LongForm: "verbose", DefinedInCode: true}}
 	if _, err := os.Stat("../../internal/config/config.go"); err == nil {
-		_, err = fs.ClassifyImplementation(ctx, "../../", mockFlags)
+		_, err = fs.ClassifyImplementation(ctx, "../../", ws, mockFlags)
 		if err != nil {
 			t.Errorf("ClassifyImplementation failed: %v", err)
 		}
@@ -56,8 +59,9 @@ func TestClassifyImplementation(t *testing.T) {
 func TestPerformCrossReferenceAnalysis(t *testing.T) {
 	fs := NewFlagSystem()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 	mockFlags := []FlagStatus{{LongForm: "verbose", DefinedInCode: true}}
-	_, err := fs.PerformCrossReferenceAnalysis(ctx, "../../", mockFlags)
+	_, err := fs.PerformCrossReferenceAnalysis(ctx, "../../", ws, mockFlags)
 	if err != nil {
 		t.Errorf("PerformCrossReferenceAnalysis failed: %v", err)
 	}
@@ -66,8 +70,9 @@ func TestPerformCrossReferenceAnalysis(t *testing.T) {
 func TestDetectConflicts(t *testing.T) {
 	fs := NewFlagSystem()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 	mockFlags := []FlagStatus{{LongForm: "verbose", DefinedInCode: true}}
-	_, err := fs.DetectConflicts(ctx, mockFlags)
+	_, err := fs.DetectConflicts(ctx, ws, mockFlags)
 	if err != nil {
 		t.Errorf("DetectConflicts failed: %v", err)
 	}
@@ -76,8 +81,9 @@ func TestDetectConflicts(t *testing.T) {
 func TestValidateFunctionality(t *testing.T) {
 	fs := NewFlagSystem()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 	mockFlags := []FlagStatus{{LongForm: "verbose", DefinedInCode: true}}
-	_, err := fs.ValidateFunctionality(ctx, mockFlags)
+	_, err := fs.ValidateFunctionality(ctx, ws, mockFlags)
 	if err != nil {
 		t.Errorf("ValidateFunctionality failed: %v", err)
 	}
@@ -86,8 +92,13 @@ func TestValidateFunctionality(t *testing.T) {
 func TestGenerateStatusReport(t *testing.T) {
 	fs := NewFlagSystem()
 	ctx := context.Background()
-	mockFlags := []FlagStatus{{LongForm: "verbose", DefinedInCode: true}}
-	report, err := fs.GenerateStatusReport(ctx, mockFlags)
+	ws, _ := NewWorkspace(true)
+	mockFlags := []FlagStatus{
+		{LongForm: "verbose", DefinedInCode: true, Status: FullyImplemented},
+		{LongForm: "hidden", DefinedInCode: true, Status: PartiallyImplemented},
+		{LongForm: "recursive", DefinedInCode: true, Status: NeedsRepair},
+	}
+	report, err := fs.GenerateStatusReport(ctx, ws, mockFlags)
 	if err != nil {
 		t.Errorf("GenerateStatusReport failed: %v", err)
 	}

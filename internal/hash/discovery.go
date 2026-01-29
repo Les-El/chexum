@@ -83,12 +83,19 @@ func handlePath(path, root string, info os.FileInfo, opts DiscoveryOptions, disc
 		return nil
 	}
 
-	// 2. Handle recursion.
+	// 2. Handle recursion and file types.
 	// If recursion is disabled, we skip any directory that isn't the root.
 	if info.IsDir() {
 		if path != root && !opts.Recursive {
 			return filepath.SkipDir
 		}
+		return nil
+	}
+
+	// 2b. Resource Hardening: Only process regular files.
+	// This prevents hashi from hanging on /dev/zero, pipes, or other
+	// "infinite" or blocking sources which could be used for DoS.
+	if !info.Mode().IsRegular() {
 		return nil
 	}
 

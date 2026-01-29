@@ -26,7 +26,7 @@ import (
 
 var binaryName = "hashi"
 
-// TestMain runs before all tests in this package and cleans up /tmp after completion
+// TestMain runs before all tests in this package and cleans up temporary storage after completion
 // to prevent disk space issues from accumulated Go build artifacts.
 func TestMain(m *testing.M) {
 	if runtime.GOOS == "windows" {
@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 	}
 
 	// Build the binary for integration tests
-	tmpDir, err := os.MkdirTemp("", "hashi-integration-build-*")
+	tmpDir, err := os.MkdirTemp("", "h-build-*")
 	if err != nil {
 		fmt.Printf("Failed to create temp dir for build: %v\n", err)
 		os.Exit(1)
@@ -54,30 +54,12 @@ func TestMain(m *testing.M) {
 
 	// Run tests
 	code := m.Run()
-	
+
 	// Cleanup
 	os.RemoveAll(tmpDir)
 	os.Setenv("PATH", oldPath)
-	cleanupObviousJunk()
-	
-	os.Exit(code)
-}
 
-func cleanupObviousJunk() {
-	// Only remove patterns that are definitely temporary and safe to remove
-	// after tests have finished
-	junkPatterns := []string{
-		"/tmp/hashi-*",
-		"/tmp/checkpoint-*",
-		"/tmp/test-*",
-	}
-	
-	for _, pattern := range junkPatterns {
-		matches, _ := filepath.Glob(pattern)
-		for _, match := range matches {
-			os.RemoveAll(match)
-		}
-	}
+	os.Exit(code)
 }
 
 // Property 32: Hash validation mode reports correct algorithms
@@ -292,7 +274,7 @@ func TestFileHashComparisonMode_ReturnsCorrectExitCodes_Property(t *testing.T) {
 }
 
 func createTempFile(content []byte) (string, func()) {
-	tmpFile, _ := os.CreateTemp("", "hashi_test_*.txt")
+	tmpFile, _ := os.CreateTemp("", "h-test-*.txt")
 	tmpFile.Write(content)
 	tmpFile.Close()
 	return tmpFile.Name(), func() { os.Remove(tmpFile.Name()) }
@@ -423,7 +405,7 @@ func TestFileHashComparisonMode_MatchingHashBool(t *testing.T) {
 }
 
 func setupMatchingHashFile(t *testing.T) (string, string) {
-	tmpFile, err := os.CreateTemp("", "hashi_test_*.txt")
+	tmpFile, err := os.CreateTemp("", "h-test-*.txt")
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -443,7 +425,7 @@ func setupMatchingHashFile(t *testing.T) (string, string) {
 // **Validates: Requirements 25.1, 25.3**
 func TestFileHashComparisonMode_MismatchingHash(t *testing.T) {
 	// Create a temporary file with known content
-	tmpFile, err := os.CreateTemp("", "hashi_test_*.txt")
+	tmpFile, err := os.CreateTemp("", "h-test-*.txt")
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -519,7 +501,7 @@ func TestFileHashComparisonMode_AlgorithmMismatch(t *testing.T) {
 // TestFileHashComparisonMode_FileNotFound tests handling of non-existent files.
 // **Validates: Requirements 25.5**
 func TestFileHashComparisonMode_FileNotFound(t *testing.T) {
-	nonExistentFile := "/tmp/this_file_does_not_exist_12345.txt"
+	nonExistentFile := filepath.Join(os.TempDir(), "this_file_does_not_exist_12345.txt")
 	validHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 	cfg := &config.Config{
@@ -654,7 +636,7 @@ func TestIncrementalHashingMode(t *testing.T) {
 	cfg1 := config.DefaultConfig()
 	cfg1.Files = files
 	cfg1.OutputManifest = manifestPath
-	
+
 	streams1 := &console.Streams{Out: io.Discard, Err: io.Discard}
 	runStandardHashingMode(cfg1, colorHandler, streams1, errHandler)
 
@@ -667,16 +649,16 @@ func TestIncrementalHashingMode(t *testing.T) {
 	cfg2.Files = files
 	cfg2.Manifest = manifestPath
 	cfg2.OnlyChanged = true
-	
+
 	var outBuf2, errBuf2 bytes.Buffer
 	streams2 := &console.Streams{Out: &outBuf2, Err: &errBuf2}
-	
+
 	// Prepare files should filter them out
 	err := prepareFiles(cfg2, errHandler, streams2)
 	if err != nil {
 		t.Fatalf("prepareFiles failed: %v", err)
 	}
-	
+
 	if len(cfg2.Files) != 0 {
 		t.Errorf("Expected 0 files to be processed, got %d", len(cfg2.Files))
 	}
@@ -691,12 +673,12 @@ func TestIncrementalHashingMode(t *testing.T) {
 	cfg3.Files = files
 	cfg3.Manifest = manifestPath
 	cfg3.OnlyChanged = true
-	
+
 	err = prepareFiles(cfg3, errHandler, streams2)
 	if err != nil {
 		t.Fatalf("prepareFiles failed: %v", err)
 	}
-	
+
 	if len(cfg3.Files) != 1 || cfg3.Files[0] != files[0] {
 		t.Errorf("Expected 1 file (files[0]) to be processed, got %v", cfg3.Files)
 	}
@@ -734,7 +716,7 @@ func TestStandardHashingMode(t *testing.T) {
 }
 
 func setupStandardTestFiles() (string, []string) {
-	tmpDir, _ := os.MkdirTemp("", "hashi_std_test_*")
+	tmpDir, _ := os.MkdirTemp("", "h-std-test-*")
 	f1 := filepath.Join(tmpDir, "file1.txt")
 	f2 := filepath.Join(tmpDir, "file2.txt")
 	f3 := filepath.Join(tmpDir, "file3.txt")

@@ -5,9 +5,10 @@ Welcome to the hashi user documentation. This guide will help you get the most o
 ## Documentation Index
 
 ### Core Guides
-- **[getting-started.md](getting-started.md)** - Installation and your first hash (Coming soon)
+- **[getting-started.md](getting-started.md)** ✅ - Installation and your first hash
 - **[examples.md](examples.md)** - Common usage patterns and recipes
-- **[command-reference.md](command-reference.md)** - Complete flag and option reference (Coming soon)
+- **[command-reference.md](command-reference.md)** ✅ - Complete flag and option reference
+- **[flags-and-arguments.md](flags-and-arguments.md)** ✅ - Quick lookup for flags and arguments
 
 ### Feature Deep Dives
 - **[filtering.md](filtering.md)** - Detailed guide to include/exclude patterns, size, and date filters

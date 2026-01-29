@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Hashi Project Cleanup Script
-# Removes temporary build artifacts and frees up tmpfs space
+# Removes temporary build artifacts and frees up temporary storage space
 
 set -e
 
@@ -48,15 +48,15 @@ Cleanup temporary files and build artifacts for the Hashi project.
 OPTIONS:
     -v, --verbose       Enable verbose output
     -d, --dry-run       Show what would be cleaned without removing files
-    -f, --force         Force cleanup even if tmpfs usage is below threshold
-    -t, --threshold N   Set tmpfs usage threshold percentage (default: 80.0)
+    -f, --force         Force cleanup even if storage usage is below threshold
+    -t, --threshold N   Set storage usage threshold percentage (default: 80.0)
     -h, --help          Show this help message
 
 EXAMPLES:
-    $0                  # Clean if tmpfs usage > 80%
+    $0                  # Clean if storage usage > 80%
     $0 -v -f            # Force cleanup with verbose output
     $0 -d               # Dry run to see what would be cleaned
-    $0 -t 50            # Clean if tmpfs usage > 50%
+    $0 -t 50            # Clean if storage usage > 50%
 
 EOF
 }
@@ -117,9 +117,16 @@ print_status "Starting cleanup with threshold: ${THRESHOLD}%"
 # Change to project root
 cd "$PROJECT_ROOT"
 
-# Check current tmpfs usage
-TMPFS_USAGE=$(df /tmp | awk 'NR==2 {print $5}' | sed 's/%//')
-print_status "Current tmpfs usage: ${TMPFS_USAGE}%"
+# Identify temp directory
+TMP_DIR="${TMPDIR:-/tmp}"
+
+# Check current usage
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    STORAGE_USAGE=$(df . | awk 'NR==2 {print $5}' | sed 's/%//')
+else
+    STORAGE_USAGE=$(df "${TMP_DIR}" | awk 'NR==2 {print $5}' | sed 's/%//')
+fi
+print_status "Current storage usage: ${STORAGE_USAGE}%"
 
 # Run the Go cleanup command
 if [[ "$DRY_RUN" == "true" ]]; then
@@ -135,11 +142,15 @@ else
     exit 1
 fi
 
-# Show final tmpfs usage
-FINAL_USAGE=$(df /tmp | awk 'NR==2 {print $5}' | sed 's/%//')
-print_status "Final tmpfs usage: ${FINAL_USAGE}%"
+# Show final usage
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    FINAL_USAGE=$(df . | awk 'NR==2 {print $5}' | sed 's/%//')
+else
+    FINAL_USAGE=$(df "${TMP_DIR}" | awk 'NR==2 {print $5}' | sed 's/%//')
+fi
+print_status "Final storage usage: ${FINAL_USAGE}%"
 
-if [[ "$FINAL_USAGE" -lt "$TMPFS_USAGE" ]]; then
-    SAVED=$((TMPFS_USAGE - FINAL_USAGE))
-    print_success "Freed ${SAVED}% of tmpfs space!"
+if [[ "$FINAL_USAGE" -lt "$STORAGE_USAGE" ]]; then
+    SAVED=$((STORAGE_USAGE - FINAL_USAGE))
+    print_success "Freed ${SAVED}% of storage space!"
 fi

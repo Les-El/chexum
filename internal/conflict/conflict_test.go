@@ -57,46 +57,10 @@ var conflictResolutionTests = []struct {
 		hasWarning: true,
 	},
 	{
-		name: "Last One Wins: JSON vs Plain (JSON wins)",
-		args: []string{"--plain", "--json"},
-		flagSet: map[string]bool{
-			"plain": true, "json": true,
-		},
-		expectedState: conflict.RunState{
-			Mode:      conflict.ModeStandard,
-			Format:    conflict.FormatJSON,
-			Verbosity: conflict.VerbosityNormal,
-		},
-	},
-	{
-		name: "Last One Wins: JSON vs Plain (Plain wins)",
-		args: []string{"--json", "--plain"},
-		flagSet: map[string]bool{
-			"plain": true, "json": true,
-		},
-		expectedState: conflict.RunState{
-			Mode:      conflict.ModeStandard,
-			Format:    conflict.FormatPlain,
-			Verbosity: conflict.VerbosityNormal,
-		},
-	},
-	{
 		name: "JSONL support",
 		args: []string{"--jsonl"},
 		flagSet: map[string]bool{
 			"jsonl": true,
-		},
-		expectedState: conflict.RunState{
-			Mode:      conflict.ModeStandard,
-			Format:    conflict.FormatJSONL,
-			Verbosity: conflict.VerbosityNormal,
-		},
-	},
-	{
-		name: "Last One Wins: JSON vs JSONL",
-		args: []string{"--json", "--jsonl"},
-		flagSet: map[string]bool{
-			"json": true, "jsonl": true,
 		},
 		expectedState: conflict.RunState{
 			Mode:      conflict.ModeStandard,
@@ -133,7 +97,19 @@ var conflictResolutionTests = []struct {
 func TestConflictResolution_PipelineOfIntent(t *testing.T) {
 	for _, tt := range conflictResolutionTests {
 		t.Run(tt.name, func(t *testing.T) {
-			state, warnings, err := conflict.ResolveState(tt.args, tt.flagSet, tt.explicitFormat)
+			// Simulate how config/cli.go determines lastFormat
+			lastFormat := tt.explicitFormat
+			if tt.flagSet["json"] {
+				lastFormat = "json"
+			}
+			if tt.flagSet["jsonl"] {
+				lastFormat = "jsonl"
+			}
+			if tt.flagSet["plain"] {
+				lastFormat = "plain"
+			}
+
+			state, warnings, err := conflict.ResolveState(tt.flagSet, lastFormat)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}

@@ -68,12 +68,9 @@ type Warning struct {
 	Message string
 }
 
-// ResolveState processes raw arguments and detected flags to produce a consistent RunState.
-func ResolveState(args []string, flagSet map[string]bool, explicitFormat string) (*RunState, []Warning, error) {
+// ResolveState processes detected flags to produce a consistent RunState.
+func ResolveState(flagSet map[string]bool, lastFormatIntent string) (*RunState, []Warning, error) {
 	warnings := make([]Warning, 0)
-
-	// Phase 1: Intent Collection
-	lastFormatIntent, lastFormatPos := collectFormatIntent(args, explicitFormat)
 
 	// Phase 2: State Construction
 	state := &RunState{
@@ -89,7 +86,7 @@ func ResolveState(args []string, flagSet map[string]bool, explicitFormat string)
 	}
 
 	// 2b. Determine Format
-	formatWarn := state.determineFormat(lastFormatIntent, lastFormatPos)
+	formatWarn := state.determineFormat(lastFormatIntent)
 	if formatWarn != "" {
 		warnings = append(warnings, Warning{Message: formatWarn})
 	}
@@ -101,33 +98,8 @@ func ResolveState(args []string, flagSet map[string]bool, explicitFormat string)
 	return state, warnings, nil
 }
 
-func collectFormatIntent(args []string, explicitFormat string) (string, int) {
-	intent := ""
-	pos := -1
-	if explicitFormat != "" && explicitFormat != "default" {
-		intent = explicitFormat
-	}
-
-	for i, arg := range args {
-		if arg == "--json" || arg == "--jsonl" || arg == "--plain" {
-			intent = strings.TrimPrefix(arg, "--")
-			pos = i
-		} else if strings.HasPrefix(arg, "--format=") {
-			intent = strings.TrimPrefix(arg, "--format=")
-			pos = i
-		} else if strings.HasPrefix(arg, "-f=") {
-			intent = strings.TrimPrefix(arg, "-f=")
-			pos = i
-		} else if arg == "-f" && i+1 < len(args) {
-			intent = args[i+1]
-			pos = i
-		}
-	}
-	return intent, pos
-}
-
-func (s *RunState) determineFormat(intent string, pos int) string {
-	if pos < 0 && intent == "" {
+func (s *RunState) determineFormat(intent string) string {
+	if intent == "" {
 		return ""
 	}
 

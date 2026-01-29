@@ -21,6 +21,8 @@ import (
 	"hash"
 	"io"
 	"os"
+	"runtime"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/blake2b"
@@ -165,6 +167,51 @@ func (c *Computer) ComputeBytes(data []byte) string {
 	hasher.Write(data)
 	// hasher.Sum(nil) appends the current hash to nil, returning the digest.
 	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+// ComputeBatch processes a list of files in parallel using the specified number of workers.
+// It returns a channel that streams Entry results as they are completed.
+func (c *Computer) ComputeBatch(files []string, workers int) <-chan Entry {
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+
+	jobs := make(chan string, workers)
+	// Buffer results slightly to prevent tight coupling, though the consumer should be fast
+	results := make(chan Entry, workers)
+
+	// Feeder
+	go func() {
+		for _, f := range files {
+			jobs <- f
+		}
+		close(jobs)
+	}()
+
+	// Workers
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			for path := range jobs {
+				entry, err := c.ComputeFile(path)
+				if err != nil {
+					results <- Entry{Original: path, Error: err}
+				} else {
+					results <- *entry
+				}
+			}
+		}()
+	}
+
+	// Closer
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	return results
 }
 
 // Algorithm returns the algorithm used by this computer.

@@ -1,0 +1,23 @@
+<decision_guidance>
+  <principles>
+    <principle>Prioritize project continuity: ensure future "Task Operators" or users can pick up exactly where you left off.</principle>
+    <principle>Efficiency through order: constantly evaluate if the current task is the most logical next step.</principle>
+    <principle>Transparency: be explicit about what is finished, what is in progress, and what is uncertain.</principle>
+  </principles>
+
+  <when_to_pause>
+    <condition>A task description is missing critical details (e.g., "Implement authentication" without specifying the provider).</condition>
+    <condition>A task implementation would require a major architectural change not previously discussed.</condition>
+    <condition>A technical blocker is encountered that cannot be resolved through codebase research alone.</condition>
+    <condition>The user has explicitly requested a confirmation gate before proceeding with certain types of changes.</condition>
+  </when_to_pause>
+
+  <handling_task_list_updates>
+    <scenario name="new_discovery">
+      <action>If a task reveals a new requirement or a hidden complexity, add it as a sub-task or a new task immediately. Update the user on the change in scope.</action>
+    </scenario>
+    <scenario name="task_redundancy">
+      <action>If a task is found to be unnecessary or already addressed, mark it as "N/A" or "Redundant" and explain why in the Development Notes.</action>
+    </scenario>
+  </handling_task_list_updates>
+</decision_guidance>

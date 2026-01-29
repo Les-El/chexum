@@ -27,19 +27,19 @@ func NewQualityEngine() *QualityEngine {
 func (q *QualityEngine) Name() string { return "QualityEngine" }
 
 // Analyze performs comprehensive quality checks on the codebase.
-func (q *QualityEngine) Analyze(ctx context.Context, path string) ([]Issue, error) {
+func (q *QualityEngine) Analyze(ctx context.Context, path string, ws *Workspace) ([]Issue, error) {
 	var allIssues []Issue
 
-	standards, _ := q.CheckGoStandards(ctx, path)
+	standards, _ := q.CheckGoStandards(ctx, path, ws)
 	allIssues = append(allIssues, standards...)
 
-	design, _ := q.AssessCLIDesign(ctx, path)
+	design, _ := q.AssessCLIDesign(ctx, path, ws)
 	allIssues = append(allIssues, design...)
 
-	errors, _ := q.EvaluateErrorHandling(ctx, path)
+	errors, _ := q.EvaluateErrorHandling(ctx, path, ws)
 	allIssues = append(allIssues, errors...)
 
-	performance, _ := q.AnalyzePerformance(ctx, path)
+	performance, _ := q.AnalyzePerformance(ctx, path, ws)
 	allIssues = append(allIssues, performance...)
 
 	return allIssues, nil
@@ -48,7 +48,7 @@ func (q *QualityEngine) Analyze(ctx context.Context, path string) ([]Issue, erro
 // CheckGoStandards validates adherence to Go coding standards (e.g., function length).
 //
 // Reviewed: LONG-FUNCTION - Kept for performance and simplicity in single pass.
-func (q *QualityEngine) CheckGoStandards(ctx context.Context, rootPath string) ([]Issue, error) {
+func (q *QualityEngine) CheckGoStandards(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
 
 	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
@@ -106,54 +106,65 @@ func (q *QualityEngine) CheckGoStandards(ctx context.Context, rootPath string) (
 }
 
 // AssessCLIDesign reviews CLI flag definitions for best practices.
-func (q *QualityEngine) AssessCLIDesign(ctx context.Context, rootPath string) ([]Issue, error) {
+func (q *QualityEngine) AssessCLIDesign(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
 
-	// Focus on internal/config/config.go where flags are defined
-	configPath := filepath.Join(rootPath, "internal/config/config.go")
-	f, err := parser.ParseFile(q.fset, configPath, nil, 0)
+	// Focus on config package where flags are defined
+	configPkg, err := discoverPackageByName(rootPath, "config")
 	if err != nil {
 		return nil, nil
 	}
 
-	ast.Inspect(f, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
+	files, err := discoverPackageFiles(rootPath, configPkg)
+	if err != nil {
+		return nil, nil
+	}
+
+	for _, configPath := range files {
+		f, err := parser.ParseFile(q.fset, configPath, nil, 0)
+		if err != nil {
+			continue
 		}
 
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
 
-		if strings.HasSuffix(sel.Sel.Name, "Var") || strings.HasSuffix(sel.Sel.Name, "VarP") {
-			// Usage/description is usually the last argument
-			if len(call.Args) > 0 {
-				lastArg := call.Args[len(call.Args)-1]
-				if lit, ok := lastArg.(*ast.BasicLit); ok && lit.Value == "\"\"" {
-					issues = append(issues, Issue{
-						ID:          "CLI-DESIGN-MISSING-USAGE",
-						Category:    Usability,
-						Severity:    Medium,
-						Title:       "Missing CLI flag description",
-						Description: "A CLI flag is defined without a usage description.",
-						Location:    q.fset.Position(call.Pos()).String(),
-						Suggestion:  "Add a helpful description to the flag definition.",
-						Effort:      Small,
-						Priority:    P2,
-					})
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+
+			if strings.HasSuffix(sel.Sel.Name, "Var") || strings.HasSuffix(sel.Sel.Name, "VarP") {
+				// Usage/description is usually the last argument
+				if len(call.Args) > 0 {
+					lastArg := call.Args[len(call.Args)-1]
+					if lit, ok := lastArg.(*ast.BasicLit); ok && lit.Value == "\"\"" {
+						issues = append(issues, Issue{
+							ID:          "CLI-DESIGN-MISSING-USAGE",
+							Category:    Usability,
+							Severity:    Medium,
+							Title:       "Missing CLI flag description",
+							Description: "A CLI flag is defined without a usage description.",
+							Location:    q.fset.Position(call.Pos()).String(),
+							Suggestion:  "Add a helpful description to the flag definition.",
+							Effort:      Small,
+							Priority:    P2,
+						})
+					}
 				}
 			}
-		}
-		return true
-	})
+			return true
+		})
+	}
 
 	return issues, nil
 }
 
 // EvaluateErrorHandling detects risky error handling patterns like panic usage.
-func (q *QualityEngine) EvaluateErrorHandling(ctx context.Context, rootPath string) ([]Issue, error) {
+func (q *QualityEngine) EvaluateErrorHandling(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
 
 	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
@@ -192,7 +203,7 @@ func (q *QualityEngine) EvaluateErrorHandling(ctx context.Context, rootPath stri
 }
 
 // AnalyzePerformance scans for potential performance bottlenecks.
-func (q *QualityEngine) AnalyzePerformance(ctx context.Context, rootPath string) ([]Issue, error) {
+func (q *QualityEngine) AnalyzePerformance(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
 
 	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {

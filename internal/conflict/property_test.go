@@ -12,7 +12,7 @@ func TestProperty_VerbosityConsistency(t *testing.T) {
 			"quiet":   quiet,
 		}
 
-		state, _, _ := ResolveState([]string{}, flagSet, "default")
+		state, _, _ := ResolveState(flagSet, "default")
 
 		if quiet {
 			return state.Verbosity == VerbosityQuiet
@@ -34,7 +34,7 @@ func TestProperty_ModeConsistency(t *testing.T) {
 			"bool": isBool,
 		}
 
-		state, _, _ := ResolveState([]string{}, flagSet, "default")
+		state, _, _ := ResolveState(flagSet, "default")
 
 		if isBool {
 			return state.Mode == ModeBool && state.Verbosity == VerbosityQuiet

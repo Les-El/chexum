@@ -24,9 +24,10 @@ func TestDocAuditor_Name(t *testing.T) {
 func TestDocAuditor_Analyze(t *testing.T) {
 	auditor := NewDocAuditor()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
 	// Analyze calls AuditGoDocumentation
-	_, err := auditor.Analyze(ctx, "../../")
+	_, err := auditor.Analyze(ctx, "../../", ws)
 	if err != nil {
 		t.Errorf("Analyze failed: %v", err)
 	}
@@ -35,6 +36,7 @@ func TestDocAuditor_Analyze(t *testing.T) {
 func TestAuditGoDocumentation(t *testing.T) {
 	auditor := NewDocAuditor()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
 	// Create a temp file with missing doc
 	tmpDir, err := os.MkdirTemp("", "doc_auditor_test")
@@ -51,7 +53,7 @@ func ExportedWithoutDoc() {}
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	issues, err := auditor.AuditGoDocumentation(ctx, tmpDir)
+	issues, err := auditor.AuditGoDocumentation(ctx, tmpDir, ws)
 	if err != nil {
 		t.Fatalf("AuditGoDocumentation failed: %v", err)
 	}
@@ -72,8 +74,9 @@ func ExportedWithoutDoc() {}
 func TestValidateREADME(t *testing.T) {
 	auditor := NewDocAuditor()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
-	issues, err := auditor.ValidateREADME(ctx, "../../")
+	issues, err := auditor.ValidateREADME(ctx, "../../", ws)
 	if err != nil {
 		t.Errorf("ValidateREADME failed: %v", err)
 	}
@@ -83,8 +86,9 @@ func TestValidateREADME(t *testing.T) {
 func TestCheckArchitecturalDocs(t *testing.T) {
 	auditor := NewDocAuditor()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
-	issues, err := auditor.CheckArchitecturalDocs(ctx, "../../")
+	issues, err := auditor.CheckArchitecturalDocs(ctx, "../../", ws)
 	if err != nil {
 		t.Errorf("CheckArchitecturalDocs failed: %v", err)
 	}
@@ -94,6 +98,7 @@ func TestCheckArchitecturalDocs(t *testing.T) {
 func TestVerifyExamples(t *testing.T) {
 	auditor := NewDocAuditor()
 	ctx := context.Background()
+	ws, _ := NewWorkspace(true)
 
 	// Create a dummy example directory in tmpDir
 	tmpDir, _ := os.MkdirTemp("", "examples_test")
@@ -105,7 +110,7 @@ func main() {}
 `
 	os.WriteFile(filepath.Join(tmpDir, "examples/test.go"), []byte(content), 0644)
 
-	issues, err := auditor.VerifyExamples(ctx, tmpDir)
+	issues, err := auditor.VerifyExamples(ctx, tmpDir, ws)
 	if err != nil {
 		t.Fatalf("VerifyExamples failed: %v", err)
 	}

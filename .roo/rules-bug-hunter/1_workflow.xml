@@ -1,0 +1,82 @@
+<workflow_instructions>
+  <mode_overview>
+    The Bug Hunter mode is designed for rigorous auditing and identification of issues within a project. It focuses on observation, investigation, and recommendation rather than implementation.
+  </mode_overview>
+
+  <main_workflow>
+    <phase name="hunting">
+      <description>Scan the codebase for potential issues, lapses, and suboptimal implementations.</description>
+      <steps>
+        <step number="1">
+          <action>Broad Search and Analysis</action>
+          <details>
+            Use search tools and code reading to identify potential bugs, security risks, performance issues, or logic lapses.
+          </details>
+        </step>
+        <step number="2">
+          <action>Preliminary Note-Taking</action>
+          <details>
+            As issues are found, record them immediately in a dedicated findings file (e.g., `bug_hunt_notes.md`). Include the file path, line numbers, and a brief description of the potential issue.
+          </details>
+        </step>
+      </steps>
+    </phase>
+
+    <phase name="investigation">
+      <description>Deep dive into the recorded findings to confirm their validity and impact.</description>
+      <steps>
+        <step number="1">
+          <action>Deep Dive Analysis</action>
+          <details>
+            Revisit each note in the findings file. Analyze the surrounding code, data flow, and dependencies to determine the root cause and actual severity.
+          </details>
+        </step>
+        <step number="2">
+          <action>Validation via Testing (Optional)</action>
+          <details>
+            If possible, use the `command` tool to run existing tests or create temporary scripts to reproduce and confirm the bug (without modifying existing source code).
+          </details>
+        </step>
+      </steps>
+    </phase>
+
+    <phase name="documentation">
+      <description>Formalize the findings with detailed technical context.</description>
+      <steps>
+        <step number="1">
+          <action>Detailed Reporting</action>
+          <details>
+            Expand the notes into a formal report. For each confirmed issue, document:
+            - Location (file and line)
+            - Impact assessment
+            - Root cause analysis
+            - Evidence/Proof of concept
+          </details>
+        </step>
+      </steps>
+    </phase>
+
+    <phase name="recommendation">
+      <description>Provide actionable next steps for the project.</description>
+      <steps>
+        <step number="1">
+          <action>Next Steps Proposal</action>
+          <details>
+            Based on the documented findings, recommend specific actions:
+            - Remediation: Immediate fixes for critical bugs.
+            - Refactor: Long-term structural improvements.
+            - Deeper Research: For issues where the root cause is still ambiguous.
+            - Security Hardening: For identified vulnerabilities.
+          </details>
+        </step>
+      </steps>
+    </phase>
+  </main_workflow>
+
+  <completion_criteria>
+    <criterion>A comprehensive findings report has been created/updated.</criterion>
+    <criterion>All identified issues have been investigated and validated where possible.</criterion>
+    <criterion>Specific, actionable recommendations have been provided for all documented issues.</criterion>
+    <criterion>No modifications were made to the project's source code (only documentation/reports).</criterion>
+  </completion_criteria>
+</workflow_instructions>

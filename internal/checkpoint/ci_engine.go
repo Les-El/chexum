@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 )
 
 // CIEngine manages CI-related quality gates and monitoring.
@@ -23,7 +22,7 @@ func NewCIEngine(threshold float64) *CIEngine {
 func (e *CIEngine) Name() string { return "CIEngine" }
 
 // Analyze runs the full CI test suite and validates quality gates.
-func (e *CIEngine) Analyze(ctx context.Context, path string) ([]Issue, error) {
+func (e *CIEngine) Analyze(ctx context.Context, path string, ws *Workspace) ([]Issue, error) {
 	if os.Getenv("SKIP_CI_ANALYSIS") == "true" {
 		return nil, nil
 	}
@@ -56,7 +55,10 @@ func (e *CIEngine) runTests(ctx context.Context, path string) (string, error) {
 	if path != "." && path != "" {
 		testPath = path + "/..."
 	}
-	cmd := exec.CommandContext(ctx, "go", "test", "-cover", testPath)
+	cmd, err := safeCommand(ctx, "go", "test", "-cover", testPath)
+	if err != nil {
+		return "", err
+	}
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }

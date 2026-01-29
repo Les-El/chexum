@@ -63,12 +63,26 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 	// 5. Cleanup
 	cleanupMgr := NewCleanupManager(false)
 	cleanupMgr.baseDir = tmpDir
+
+	// Register a mock workspace for cleanup test
+	ws, _ := NewWorkspace(false)
+	ws.Root = filepath.Join(tmpDir, "mock-workspace")
+	os.MkdirAll(ws.Root, 0755)
+	os.WriteFile(filepath.Join(ws.Root, "test.tmp"), []byte("data"), 0644)
+	cleanupMgr.RegisterWorkspace(ws)
+
 	result, err := cleanupMgr.CleanupTemporaryFiles()
 	if err != nil {
 		t.Fatalf("Cleanup failed: %v", err)
 	}
 
-	// Since we didn't create any files matching cleanup patterns in tmpDir (other than the organizer files which are NOT in /tmp),
-	// we don't expect much here unless we add some.
+	if result.DirsRemoved == 0 {
+		t.Error("Expected at least one directory (workspace) to be removed")
+	}
+
+	if _, err := os.Stat(ws.Root); !os.IsNotExist(err) {
+		t.Errorf("Workspace root %s still exists after cleanup", ws.Root)
+	}
+
 	t.Logf("Cleanup removed %d files and %d dirs", result.FilesRemoved, result.DirsRemoved)
 }

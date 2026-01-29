@@ -1,6 +1,8 @@
 package security
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/quick"
@@ -28,14 +30,14 @@ func TestValidateOutputPath(t *testing.T) {
 	})
 
 	t.Run("blacklisted file", func(t *testing.T) {
-		if err := ValidateOutputPath("secret_data.txt", opts); err == nil {
-			t.Error("expected error for 'secret' file")
+		if err := ValidateOutputPath("id_rsa.txt", opts); err == nil {
+			t.Error("expected error for 'id_rsa' file")
 		}
 	})
 
 	t.Run("blacklisted dir", func(t *testing.T) {
-		if err := ValidateOutputPath("config/results.txt", opts); err == nil {
-			t.Error("expected error for 'config' dir")
+		if err := ValidateOutputPath(".git/results.txt", opts); err == nil {
+			t.Error("expected error for '.git' dir")
 		}
 	})
 
@@ -44,6 +46,25 @@ func TestValidateOutputPath(t *testing.T) {
 		wOpts.WhitelistFiles = []string{"secret_report.txt"}
 		if err := ValidateOutputPath("secret_report.txt", wOpts); err != nil {
 			t.Errorf("expected whitelist to allow file, got %v", err)
+		}
+	})
+
+	t.Run("symlink check", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		target := filepath.Join(tmpDir, "target.txt")
+		if err := os.WriteFile(target, []byte("data"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(tmpDir, "link.txt")
+		if err := os.Symlink(target, link); err != nil {
+			// Skip if OS doesn't support symlinks (e.g. some Windows configs)
+			t.Skip("skipping symlink test: ", err)
+		}
+
+		if err := ValidateOutputPath(link, opts); err == nil {
+			t.Error("expected error for symlink")
+		} else if !strings.Contains(err.Error(), "symlink") {
+			t.Errorf("expected symlink error, got %v", err)
 		}
 	})
 }
@@ -96,8 +117,8 @@ func TestResolveSafePath(t *testing.T) {
 
 func TestValidateFileName(t *testing.T) {
 	opts := Options{Verbose: true}
-	if err := ValidateFileName("secret.txt", opts); err == nil {
-		t.Error("Expected error for secret.txt")
+	if err := ValidateFileName("id_rsa", opts); err == nil {
+		t.Error("Expected error for id_rsa")
 	}
 	if err := ValidateFileName("safe.txt", opts); err != nil {
 		t.Errorf("Unexpected error for safe.txt: %v", err)
@@ -106,8 +127,8 @@ func TestValidateFileName(t *testing.T) {
 
 func TestValidateDirPath(t *testing.T) {
 	opts := Options{Verbose: true}
-	if err := ValidateDirPath("config/file.txt", opts); err == nil {
-		t.Error("Expected error for config/file.txt")
+	if err := ValidateDirPath(".git/file.txt", opts); err == nil {
+		t.Error("Expected error for .git/file.txt")
 	}
 	if err := ValidateDirPath("safe/file.txt", opts); err != nil {
 		t.Errorf("Unexpected error for safe/file.txt: %v", err)

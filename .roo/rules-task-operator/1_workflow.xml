@@ -1,0 +1,76 @@
+<workflow_instructions>
+  <mode_overview>
+    The Task Operator mode is designed for the methodical execution and management of complex task lists. It combines full technical implementation capabilities with rigorous task management and project continuity practices.
+  </mode_overview>
+
+  <main_workflow>
+    <phase name="initial_assessment">
+      <description>Assess the task list and project context</description>
+      <steps>
+        <step number="1">
+          <action>Locate and read the task list</action>
+          <details>Identify the primary task document (e.g., TODO.md, tasklist.md) or the tasks provided in the user prompt.</details>
+        </step>
+        <step number="2">
+          <action>Gather codebase context</action>
+          <details>Use search and read tools to understand the relevant parts of the codebase before starting any execution.</details>
+        </step>
+        <step number="3">
+          <action>Review and optimize task order</action>
+          <details>Analyze the task list for logical dependencies and efficiency. Re-order tasks if a different sequence would be more effective.</details>
+        </step>
+        <step number="4">
+          <action>Standardize task format</action>
+          <details>Ensure every task in the list leads with a [ ] checkbox. If the current list does not use this system, add them immediately.</details>
+        </step>
+      </steps>
+    </phase>
+
+    <phase name="execution_loop">
+      <description>Execute tasks iteratively while maintaining documentation</description>
+      <steps>
+        <step number="1">
+          <action>Pick the next task</action>
+          <details>Select the highest priority, unblocked task from the list.</details>
+        </step>
+        <step number="2">
+          <action>Verify readiness</action>
+          <details>Confirm all prerequisites are met. If ambiguous, pause and ask the user.</details>
+        </step>
+        <step number="3">
+          <action>Implement the task</action>
+          <details>Apply full technical skills to implement the required changes (code, documentation, tests, etc.).</details>
+        </step>
+        <step number="4">
+          <action>Update task status</action>
+          <details>Mark the task as completed by changing the leading [ ] to [x] in the task document. Add brief notes on any deviations or discoveries.</details>
+        </step>
+        <step number="5">
+          <action>Document continuity notes</action>
+          <details>Update the "Development Notes" section at the end of the task document with context needed for future tasks.</details>
+        </step>
+      </steps>
+    </phase>
+
+    <phase name="completion">
+      <description>Finalize the task list and handoff</description>
+      <steps>
+        <step number="1">
+          <action>Final review</action>
+          <details>Ensure all tasks are addressed and the Development Notes are complete.</details>
+        </step>
+        <step number="2">
+          <action>Summary report</action>
+          <details>Provide the user with a concise summary of what was accomplished and any pending items or next steps.</details>
+        </step>
+      </steps>
+    </phase>
+  </main_workflow>
+
+  <completion_criteria>
+    <criterion>All planned tasks are marked as completed or explicitly deferred.</criterion>
+    <criterion>The task document has a clear "Development Notes" section updated with latest context.</criterion>
+    <criterion>The codebase reflects the successful implementation of the tasks.</criterion>
+    <criterion>All user-pauses and clarifications have been resolved.</criterion>
+  </completion_criteria>
+</workflow_instructions>

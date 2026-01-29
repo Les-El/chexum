@@ -7,7 +7,6 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -28,37 +27,79 @@ func NewTestingBattery() *TestingBattery {
 func (t *TestingBattery) Name() string { return "TestingBattery" }
 
 // Analyze executes a comprehensive test suite analysis.
-func (t *TestingBattery) Analyze(ctx context.Context, path string) ([]Issue, error) {
+func (t *TestingBattery) Analyze(ctx context.Context, path string, ws *Workspace) ([]Issue, error) {
 	// For analysis, we report packages with low coverage and reliability issues.
 	var issues []Issue
 
-	coverageIssues, err := t.IdentifyLowCoverage(ctx, path)
-	if err == nil {
+	coverageIssues, err := t.IdentifyLowCoverage(ctx, path, ws)
+	if err != nil {
+		issues = append(issues, Issue{
+			ID: "COVERAGE-ANALYSIS-ERROR", Category: Testing, Severity: Medium,
+			Title: "Coverage analysis failed", Description: fmt.Sprintf("Error during coverage analysis: %v", err),
+			Location: path, Suggestion: "Check if the internal directory exists and is readable.",
+			Effort: Small, Priority: P2,
+		})
+	} else {
 		issues = append(issues, coverageIssues...)
 	}
 
-	unitIssues, err := t.CreateUnitTests(ctx, path)
-	if err == nil {
+	unitIssues, err := t.CreateUnitTests(ctx, path, ws)
+	if err != nil {
+		issues = append(issues, Issue{
+			ID: "UNIT-TEST-ANALYSIS-ERROR", Category: Testing, Severity: Medium,
+			Title: "Unit test analysis failed", Description: fmt.Sprintf("Error during unit test analysis: %v", err),
+			Location: path, Suggestion: "Check project structure and file permissions.",
+			Effort: Small, Priority: P2,
+		})
+	} else {
 		issues = append(issues, unitIssues...)
 	}
 
-	reliabilityIssues, err := t.CheckTestReliability(ctx, path)
-	if err == nil {
+	reliabilityIssues, err := t.CheckTestReliability(ctx, path, ws)
+	if err != nil {
+		issues = append(issues, Issue{
+			ID: "RELIABILITY-ANALYSIS-ERROR", Category: Testing, Severity: Medium,
+			Title: "Reliability analysis failed", Description: fmt.Sprintf("Error during reliability analysis: %v", err),
+			Location: path, Suggestion: "Ensure 'go' tool is in PATH.",
+			Effort: Small, Priority: P2,
+		})
+	} else {
 		issues = append(issues, reliabilityIssues...)
 	}
 
-	integrationIssues, err := t.BuildIntegrationTests(ctx, path)
-	if err == nil {
+	integrationIssues, err := t.BuildIntegrationTests(ctx, path, ws)
+	if err != nil {
+		issues = append(issues, Issue{
+			ID: "INTEGRATION-TEST-ANALYSIS-ERROR", Category: Testing, Severity: Medium,
+			Title: "Integration test analysis failed", Description: fmt.Sprintf("Error during integration test analysis: %v", err),
+			Location: path, Suggestion: "Check cmd/ directory existence.",
+			Effort: Small, Priority: P2,
+		})
+	} else {
 		issues = append(issues, integrationIssues...)
 	}
 
-	propertyIssues, err := t.ImplementPropertyTests(ctx, path)
-	if err == nil {
+	propertyIssues, err := t.ImplementPropertyTests(ctx, path, ws)
+	if err != nil {
+		issues = append(issues, Issue{
+			ID: "PROPERTY-TEST-ANALYSIS-ERROR", Category: Testing, Severity: Medium,
+			Title: "Property test analysis failed", Description: fmt.Sprintf("Error during property test analysis: %v", err),
+			Location: path, Suggestion: "Check core package existence.",
+			Effort: Small, Priority: P2,
+		})
+	} else {
 		issues = append(issues, propertyIssues...)
 	}
 
-	benchmarkIssues, err := t.CreateBenchmarks(ctx, path)
-	if err == nil {
+	benchmarkIssues, err := t.CreateBenchmarks(ctx, path, ws)
+	if err != nil {
+		issues = append(issues, Issue{
+			ID: "BENCHMARK-ANALYSIS-ERROR", Category: Testing, Severity: Medium,
+			Title: "Benchmark analysis failed", Description: fmt.Sprintf("Error during benchmark analysis: %v", err),
+			Location: path, Suggestion: "Check package existence.",
+			Effort: Small, Priority: P2,
+		})
+	} else {
 		issues = append(issues, benchmarkIssues...)
 	}
 
@@ -66,15 +107,45 @@ func (t *TestingBattery) Analyze(ctx context.Context, path string) ([]Issue, err
 }
 
 // CheckTestReliability runs tests selectively to detect flakiness without resource exhaustion.
-func (t *TestingBattery) CheckTestReliability(ctx context.Context, rootPath string) ([]Issue, error) {
+func (t *TestingBattery) CheckTestReliability(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
 
+	hashPkg, _ := discoverPackageByName(rootPath, "hash")
+	conflictPkg, _ := discoverPackageByName(rootPath, "conflict")
+
+	// Whitelist of packages allowed for test reliability checks to prevent command injection
+	whitelist := make(map[string]bool)
+	if hashPkg != "" {
+		whitelist[hashPkg] = true
+	}
+	if conflictPkg != "" {
+		whitelist[conflictPkg] = true
+	}
+
 	// Instead of ./..., we identify critical packages and run them with -short
-	criticalPackages := []string{"internal/hash", "internal/conflict"}
+	var criticalPackages []string
+	if hashPkg != "" {
+		criticalPackages = append(criticalPackages, hashPkg)
+	}
+	if conflictPkg != "" {
+		criticalPackages = append(criticalPackages, conflictPkg)
+	}
 
 	for _, pkgRel := range criticalPackages {
+		if !whitelist[pkgRel] {
+			continue
+		}
+
+		// Sanitize pkgRel for extra safety before use in exec.Command
+		if strings.ContainsAny(pkgRel, ";&|`$()") {
+			continue
+		}
+
 		pkg := filepath.Join(rootPath, pkgRel)
-		cmd := exec.CommandContext(ctx, "go", "test", "-short", "-count=1", "./"+pkgRel)
+		cmd, err := safeCommand(ctx, "go", "test", "-short", "-count=1", "./"+pkgRel)
+		if err != nil {
+			continue
+		}
 		cmd.Dir = rootPath
 		output, err := cmd.CombinedOutput()
 		if err != nil {
@@ -105,7 +176,7 @@ func (t *TestingBattery) CheckTestReliability(ctx context.Context, rootPath stri
 }
 
 // IdentifyLowCoverage uses static analysis and selective execution to assess coverage.
-func (t *TestingBattery) IdentifyLowCoverage(ctx context.Context, rootPath string) ([]Issue, error) {
+func (t *TestingBattery) IdentifyLowCoverage(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
 
 	internalPath := filepath.Join(rootPath, "internal")
@@ -158,7 +229,7 @@ func (t *TestingBattery) IdentifyLowCoverage(ctx context.Context, rootPath strin
 }
 
 // CreateUnitTests identifies missing unit tests for exported functions.
-func (t *TestingBattery) CreateUnitTests(ctx context.Context, rootPath string) ([]Issue, error) {
+func (t *TestingBattery) CreateUnitTests(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
 
 	// Map of package path to tested functions in that package
@@ -183,6 +254,17 @@ func (t *TestingBattery) CreateUnitTests(ctx context.Context, rootPath string) (
 
 		f, err := parser.ParseFile(t.fset, path, nil, parser.ParseComments)
 		if err != nil {
+			issues = append(issues, Issue{
+				ID:          "PARSE-ERROR",
+				Category:    Testing,
+				Severity:    High,
+				Title:       "Failed to parse Go file for unit test analysis",
+				Description: fmt.Sprintf("Parser error in %s: %v", path, err),
+				Location:    path,
+				Suggestion:  "Ensure the file is valid Go code.",
+				Effort:      Small,
+				Priority:    P1,
+			})
 			return nil
 		}
 
@@ -313,7 +395,7 @@ func (t *TestingBattery) isExportedType(expr ast.Expr) bool {
 }
 
 // BuildIntegrationTests checks for the existence of integration tests.
-func (t *TestingBattery) BuildIntegrationTests(ctx context.Context, rootPath string) ([]Issue, error) {
+func (t *TestingBattery) BuildIntegrationTests(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	// Integration tests usually target the cmd/hashi/main.go or similar.
 	// We'll look for CLI command definitions.
 	var issues []Issue
@@ -338,12 +420,16 @@ func (t *TestingBattery) BuildIntegrationTests(ctx context.Context, rootPath str
 }
 
 // ImplementPropertyTests checks for missing property-based tests in core packages.
-func (t *TestingBattery) ImplementPropertyTests(ctx context.Context, rootPath string) ([]Issue, error) {
+func (t *TestingBattery) ImplementPropertyTests(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
 
-	// Identify "core algorithms" - we'll look for packages like internal/hash, internal/conflict
-	corePackages := []string{"internal/hash", "internal/conflict", "internal/checkpoint"}
-	for _, pkg := range corePackages {
+	// Identify "core algorithms"
+	corePkgs := []string{"hash", "conflict", "checkpoint"}
+	for _, name := range corePkgs {
+		pkg, _ := discoverPackageByName(rootPath, name)
+		if pkg == "" {
+			continue
+		}
 		testFile := filepath.Join(rootPath, pkg, "property_test.go")
 		if _, err := os.Stat(testFile); os.IsNotExist(err) {
 			issues = append(issues, Issue{
@@ -364,22 +450,25 @@ func (t *TestingBattery) ImplementPropertyTests(ctx context.Context, rootPath st
 }
 
 // CreateBenchmarks checks for missing benchmarks in performance-critical areas.
-func (t *TestingBattery) CreateBenchmarks(ctx context.Context, rootPath string) ([]Issue, error) {
+func (t *TestingBattery) CreateBenchmarks(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
 	// Identify performance-critical areas (e.g., hashing)
-	benchmarkPath := filepath.Join(rootPath, "internal/hash/benchmark_test.go")
-	if _, err := os.Stat(benchmarkPath); os.IsNotExist(err) {
-		issues = append(issues, Issue{
-			ID:          "MISSING-BENCHMARK",
-			Category:    Testing,
-			Severity:    Low,
-			Title:       "Missing benchmarks for performance-critical code",
-			Description: "Hashing operations should be benchmarked to detect regressions.",
-			Location:    "internal/hash",
-			Suggestion:  "Add BenchmarkHash in internal/hash/benchmark_test.go",
-			Effort:      Small,
-			Priority:    P3,
-		})
+	hashPkg, _ := discoverPackageByName(rootPath, "hash")
+	if hashPkg != "" {
+		benchmarkPath := filepath.Join(rootPath, hashPkg, "benchmark_test.go")
+		if _, err := os.Stat(benchmarkPath); os.IsNotExist(err) {
+			issues = append(issues, Issue{
+				ID:          "MISSING-BENCHMARK",
+				Category:    Testing,
+				Severity:    Low,
+				Title:       "Missing benchmarks for performance-critical code",
+				Description: "Hashing operations should be benchmarked to detect regressions.",
+				Location:    hashPkg,
+				Suggestion:  fmt.Sprintf("Add BenchmarkHash in %s/benchmark_test.go", hashPkg),
+				Effort:      Small,
+				Priority:    P3,
+			})
+		}
 	}
 	return issues, nil
 }

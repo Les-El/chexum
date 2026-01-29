@@ -3,11 +3,12 @@ package testutil
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
-	"os/exec"
 )
 
 // CaptureOutput captures stdout and stderr during the execution of f.
@@ -53,7 +54,7 @@ func CaptureOutput(f func()) (stdout, stderr string, err error) {
 // TempDir creates a temporary directory and returns its path and a cleanup function.
 func TempDir(t *testing.T) (string, func()) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "hashi-test-*")
+	dir, err := os.MkdirTemp("", "h-testdir-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -95,20 +96,20 @@ func contains(s, substr string) bool {
 	return bytes.Contains([]byte(s), []byte(substr))
 }
 
-// AutoCleanupTmpfs performs automatic cleanup of /tmp directory to prevent disk space issues during tests.
+// AutoCleanupStorage performs automatic cleanup of temporary storage to prevent disk space issues during tests.
 // This function identifies and removes Go build artifacts (go-build-*, etc) and hashi-specific temporary files.
 // It uses force cleanup mode to ensure space is freed up for subsequent tests.
 // Returns true if cleanup was performed successfully.
-func AutoCleanupTmpfs(t *testing.T) bool {
+func AutoCleanupStorage(t *testing.T) bool {
 	t.Helper()
-	
-	tmpDir := "/tmp"
+
+	tmpDir := os.TempDir()
 	patterns := []string{
 		"hashi-*",
 		"checkpoint-*",
 		"test-*",
 	}
-	
+
 	cleaned := false
 	for _, pattern := range patterns {
 		matches, err := filepath.Glob(filepath.Join(tmpDir, pattern))
@@ -121,19 +122,22 @@ func AutoCleanupTmpfs(t *testing.T) bool {
 			}
 		}
 	}
-	
+
 	return cleaned
 }
 
-// RequireCleanTmpfs ensures /tmp has sufficient space by aggressively cleaning it.
+// RequireCleanStorage ensures temporary storage has sufficient space by aggressively cleaning it.
 // This is called before resource-intensive tests. It removes go test build artifacts
 // that accumulate and consume disk space during testing.
-func RequireCleanTmpfs(t *testing.T) {
+func RequireCleanStorage(t *testing.T) {
 	t.Helper()
-	
-	// Try using the cleanup command if available
-	cmd := exec.Command("bash", "-c", "rm -rf /tmp/hashi-* /tmp/checkpoint-* /tmp/test-* 2>/dev/null || true")
-	cmd.Run()
-	
-	AutoCleanupTmpfs(t)
+
+	tmpDir := os.TempDir()
+	// Use platform-specific removal command if possible, otherwise fallback to Go
+	if _, err := exec.LookPath("rm"); err == nil {
+		cmd := exec.Command("bash", "-c", fmt.Sprintf("rm -rf %s/hashi-* %s/checkpoint-* %s/test-* 2>/dev/null || true", tmpDir, tmpDir, tmpDir))
+		cmd.Run()
+	}
+
+	AutoCleanupStorage(t)
 }

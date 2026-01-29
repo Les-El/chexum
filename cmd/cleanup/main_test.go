@@ -1,40 +1,17 @@
 package main
 
 import (
-
 	"os"
-	"path/filepath"
 	"testing"
 
-
-
 	"github.com/Les-El/hashi/internal/checkpoint"
-
 	"github.com/Les-El/hashi/internal/testutil"
-
 )
 
-// TestMain runs after all tests and cleans up temporary files to prevent disk space issues
+// TestMain runs after all tests
 func TestMain(m *testing.M) {
 	code := m.Run()
-	cleanupTemporaryFiles()
 	os.Exit(code)
-}
-
-func cleanupTemporaryFiles() {
-	// Only remove temporary files created by tests, not active Go build artifacts
-	tmpPatterns := []string{
-		"/tmp/hashi-*",
-		"/tmp/checkpoint-*",
-		"/tmp/test-*",
-	}
-	
-	for _, pattern := range tmpPatterns {
-		matches, _ := filepath.Glob(pattern)
-		for _, match := range matches {
-			os.RemoveAll(match)
-		}
-	}
 }
 
 // Reviewed: LONG-FUNCTION - Table-driven test with complex setup and output capturing.

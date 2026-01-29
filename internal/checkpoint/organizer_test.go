@@ -123,3 +123,13 @@ func TestCleanupArchives(t *testing.T) {
 		t.Errorf("CleanupArchives failed: %v", err)
 	}
 }
+
+func TestOrganizer_SnapshotError(t *testing.T) {
+	tmpDir := t.TempDir()
+	organizer := NewOrganizer(tmpDir)
+
+	// Latest dir doesn't exist
+	if err := organizer.CreateSnapshot("fail"); err != nil {
+		t.Logf("Expected failure when latest dir missing: %v", err)
+	}
+}

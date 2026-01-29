@@ -53,7 +53,7 @@ type MockAnalysisEngine struct {
 }
 
 func (m *MockAnalysisEngine) Name() string { return m.name }
-func (m *MockAnalysisEngine) Analyze(ctx context.Context, path string) ([]Issue, error) {
+func (m *MockAnalysisEngine) Analyze(ctx context.Context, path string, ws *Workspace) ([]Issue, error) {
 	return m.issues, m.err
 }
 

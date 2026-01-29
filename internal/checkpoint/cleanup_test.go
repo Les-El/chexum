@@ -16,10 +16,10 @@ func TestNewCleanupManager(t *testing.T) {
 	}
 }
 
-func TestCheckTmpfsUsage(t *testing.T) {
+func TestCheckStorageUsage(t *testing.T) {
 	cleanup := NewCleanupManager(false)
 
-	needsCleanup, usage := cleanup.CheckTmpfsUsage(100.0) // Set threshold to 100% so it shouldn't trigger
+	needsCleanup, usage := cleanup.CheckStorageUsage(100.0) // Set threshold to 100% so it shouldn't trigger
 	if needsCleanup {
 		t.Errorf("Expected needsCleanup to be false with 100%% threshold, got true (usage: %.1f%%)", usage)
 	}
@@ -84,27 +84,69 @@ func TestCleanupManager_GetDirSize(t *testing.T) {
 	}
 }
 
+func TestCleanupManager_Workspaces(t *testing.T) {
+	tmpDir := t.TempDir()
+	cleanup := NewCleanupManager(false)
+	cleanup.SetBaseDir(tmpDir)
+
+	// Create a disk-based workspace for testing
+	ws, err := NewWorkspace(false)
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+
+	// Manually set Root to something within our temp dir for the test
+	oldRoot := ws.Root
+	defer os.RemoveAll(oldRoot) // Cleanup the actual system temp dir
+
+	ws.Root = filepath.Join(tmpDir, "test-workspace")
+	os.MkdirAll(ws.Root, 0755)
+	os.WriteFile(filepath.Join(ws.Root, "test.tmp"), []byte("data"), 0644)
+
+	cleanup.RegisterWorkspace(ws)
+	if len(cleanup.workspaces) != 1 {
+		t.Errorf("Expected 1 workspace, got %d", len(cleanup.workspaces))
+	}
+
+	result, err := cleanup.CleanupTemporaryFiles()
+	if err != nil {
+		t.Fatalf("Cleanup failed: %v", err)
+	}
+
+	if result.DirsRemoved != 1 {
+		t.Errorf("Expected 1 directory removed, got %d", result.DirsRemoved)
+	}
+
+	if _, err := os.Stat(ws.Root); !os.IsNotExist(err) {
+		t.Error("Workspace root still exists after cleanup")
+	}
+
+	if len(cleanup.workspaces) != 0 {
+		t.Error("Workspaces list not cleared after cleanup")
+	}
+}
+
 func TestCleanupTemporaryFiles(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping cleanup test in short mode")
 	}
-	
+
 	tmpDir := t.TempDir()
 	cleanup := NewCleanupManager(false)
 	cleanup.SetBaseDir(tmpDir)
-	
+
 	// Create some dummy files to clean
 	os.WriteFile(filepath.Join(tmpDir, "test-1.tmp"), []byte("data"), 0644)
-	
+
 	result, err := cleanup.CleanupTemporaryFiles()
 	if err != nil {
 		t.Fatalf("CleanupTemporaryFiles failed: %v", err)
 	}
-	
+
 	if result == nil {
 		t.Error("Expected non-nil result")
 	}
-	
+
 	if result.FilesRemoved != 1 {
 		t.Errorf("Expected 1 file removed, got %d", result.FilesRemoved)
 	}
@@ -113,11 +155,11 @@ func TestCleanupOnExit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
-	
+
 	tmpDir := t.TempDir()
 	cleanup := NewCleanupManager(false)
 	cleanup.SetBaseDir(tmpDir)
-	
+
 	// Test that cleanup can be called without error
 	err := cleanup.CleanupOnExit()
 	if err != nil {
@@ -146,7 +188,7 @@ func TestCleanupManager_LoadConfig(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "cleanup.toml")
 	os.WriteFile(configPath, []byte(`[cleanup]
 custom_patterns = [{pattern = "*.old", description = "Old files", enabled = true}]`), 0644)
-	
+
 	err := cleanup.LoadConfig(configPath)
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
@@ -175,24 +217,23 @@ func TestCleanupManager_PreviewCleanup(t *testing.T) {
 
 func TestCleanupManager_AdditionalMethods(t *testing.T) {
 	cleanup := NewCleanupManager(false)
-	
+
 	t.Run("ExcludePatterns", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		cleanup.SetBaseDir(tmpDir)
-		
+
 		os.WriteFile(filepath.Join(tmpDir, "test-1.tmp"), []byte("data"), 0644)
 		os.WriteFile(filepath.Join(tmpDir, "keep-me.tmp"), []byte("data"), 0644)
-		
+
 		cleanup.config.ExcludePatterns = []string{"keep-me.tmp"}
-		
+
 		result, _ := cleanup.CleanupTemporaryFiles()
 		if result.FilesRemoved != 1 {
 			t.Errorf("Expected 1 file removed, got %d", result.FilesRemoved)
 		}
-		
+
 		if _, err := os.Stat(filepath.Join(tmpDir, "keep-me.tmp")); os.IsNotExist(err) {
 			t.Error("Excluded file was removed")
 		}
 	})
 }
-

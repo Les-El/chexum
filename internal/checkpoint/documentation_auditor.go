@@ -27,20 +27,52 @@ func NewDocAuditor() *DocAuditor {
 func (d *DocAuditor) Name() string { return "DocAuditor" }
 
 // Analyze executes the documentation audit logic.
-func (d *DocAuditor) Analyze(ctx context.Context, path string) ([]Issue, error) {
+func (d *DocAuditor) Analyze(ctx context.Context, path string, ws *Workspace) ([]Issue, error) {
 	var allIssues []Issue
 
-	docIssues, _ := d.AuditGoDocumentation(ctx, path)
+	docIssues, err := d.AuditGoDocumentation(ctx, path, ws)
+	if err != nil {
+		allIssues = append(allIssues, Issue{
+			ID:          "AUDIT-ERROR",
+			Category:    Documentation,
+			Severity:    High,
+			Title:       "Documentation audit failed",
+			Description: fmt.Sprintf("Error during documentation audit: %v", err),
+			Location:    path,
+			Suggestion:  "Check file permissions and project structure.",
+			Effort:      Small,
+			Priority:    P1,
+		})
+	}
 	allIssues = append(allIssues, docIssues...)
 
-	exampleIssues, _ := d.VerifyExamples(ctx, path)
+	exampleIssues, err := d.VerifyExamples(ctx, path, ws)
+	if err != nil {
+		allIssues = append(allIssues, Issue{
+			ID:          "EXAMPLE-ERROR",
+			Category:    Documentation,
+			Severity:    High,
+			Title:       "Example verification failed",
+			Description: fmt.Sprintf("Error during example verification: %v", err),
+			Location:    path,
+			Suggestion:  "Ensure 'examples/' directory exists and is accessible.",
+			Effort:      Small,
+			Priority:    P1,
+		})
+	}
 	allIssues = append(allIssues, exampleIssues...)
+
+	readmeIssues, _ := d.ValidateREADME(ctx, path, ws)
+	allIssues = append(allIssues, readmeIssues...)
+
+	archIssues, _ := d.CheckArchitecturalDocs(ctx, path, ws)
+	allIssues = append(allIssues, archIssues...)
 
 	return allIssues, nil
 }
 
 // AuditGoDocumentation checks for missing documentation on exported functions.
-func (d *DocAuditor) AuditGoDocumentation(ctx context.Context, rootPath string) ([]Issue, error) {
+func (d *DocAuditor) AuditGoDocumentation(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
 
 	err := filepath.Walk(rootPath, func(filePath string, info os.FileInfo, err error) error {
@@ -59,6 +91,17 @@ func (d *DocAuditor) AuditGoDocumentation(ctx context.Context, rootPath string) 
 
 		fileIssues, err := d.auditFile(filePath)
 		if err != nil {
+			issues = append(issues, Issue{
+				ID:          "PARSE-ERROR",
+				Category:    Documentation,
+				Severity:    High,
+				Title:       "Failed to parse Go file for documentation",
+				Description: fmt.Sprintf("Parser error in %s: %v", filePath, err),
+				Location:    filePath,
+				Suggestion:  "Ensure the file is valid Go code.",
+				Effort:      Small,
+				Priority:    P1,
+			})
 			return nil
 		}
 		issues = append(issues, fileIssues...)
@@ -105,44 +148,133 @@ func (d *DocAuditor) auditFile(filePath string) ([]Issue, error) {
 }
 
 // ValidateREADME ensures the README exists and meets quality standards.
-func (d *DocAuditor) ValidateREADME(ctx context.Context, rootPath string) ([]Issue, error) {
-	return nil, nil
-}
-
-// CheckArchitecturalDocs verifies the presence of architectural documentation.
-func (d *DocAuditor) CheckArchitecturalDocs(ctx context.Context, rootPath string) ([]Issue, error) {
-	return nil, nil
-}
-
-// VerifyExamples checks that example files exist and are valid.
-func (d *DocAuditor) VerifyExamples(ctx context.Context, rootPath string) ([]Issue, error) {
+func (d *DocAuditor) ValidateREADME(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
 	var issues []Issue
-
-	examplePath := filepath.Join(rootPath, "examples/*.go")
-	exampleFiles, err := filepath.Glob(examplePath)
+	readmePath := filepath.Join(rootPath, "README.md")
+	data, err := os.ReadFile(readmePath)
 	if err != nil {
-		return nil, err
+		return []Issue{{
+			ID:          "MISSING-README",
+			Category:    Documentation,
+			Severity:    Critical,
+			Title:       "Missing README.md",
+			Description: "The project is missing a README.md file in the root directory.",
+			Location:    readmePath,
+			Suggestion:  "Create a README.md file to provide project overview and instructions.",
+			Effort:      Small,
+			Priority:    P1,
+		}}, nil
 	}
 
-	for _, file := range exampleFiles {
-		// Basic check: does it compile?
-		// In a real system, we might run 'go build' or 'go run'.
-		// For the audit engine, we'll just check if it exists for now.
-		info, err := os.Stat(file)
-		if err != nil || info.IsDir() {
+	content := string(data)
+	requiredSections := []string{"Overview", "Installation", "Usage", "License"}
+	for _, section := range requiredSections {
+		if !strings.Contains(content, "# "+section) && !strings.Contains(content, "## "+section) {
 			issues = append(issues, Issue{
-				ID:          "BROKEN-EXAMPLE",
+				ID:          "README-MISSING-SECTION",
 				Category:    Documentation,
-				Severity:    High,
-				Title:       "Example file missing or unreadable",
-				Description: fmt.Sprintf("Example file '%s' cannot be accessed.", file),
-				Location:    file,
-				Suggestion:  "Restore or fix the example file.",
+				Severity:    Medium,
+				Title:       fmt.Sprintf("README missing '%s' section", section),
+				Description: fmt.Sprintf("The README.md is missing a header for the '%s' section.", section),
+				Location:    readmePath,
+				Suggestion:  fmt.Sprintf("Add a '# %s' or '## %s' section to the README.md.", section, section),
 				Effort:      Small,
-				Priority:    P1,
+				Priority:    P2,
 			})
 		}
 	}
 
 	return issues, nil
+}
+
+// CheckArchitecturalDocs verifies the presence of architectural documentation.
+func (d *DocAuditor) CheckArchitecturalDocs(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
+	var issues []Issue
+	adrDir := filepath.Join(rootPath, "docs/adr")
+	files, err := os.ReadDir(adrDir)
+	if err != nil || len(files) == 0 {
+		issues = append(issues, Issue{
+			ID:          "MISSING-ADRS",
+			Category:    Documentation,
+			Severity:    Low,
+			Title:       "Missing Architectural Decision Records (ADRs)",
+			Description: "No ADRs were found in 'docs/adr/'. ADRs are essential for tracking long-term architectural decisions.",
+			Location:    adrDir,
+			Suggestion:  "Start documenting major architectural decisions using the ADR format.",
+			Effort:      MediumEffort,
+			Priority:    P3,
+		})
+	}
+
+	designDir := filepath.Join(rootPath, "docs/design")
+	designFiles, err := os.ReadDir(designDir)
+	if err != nil || len(designFiles) == 0 {
+		issues = append(issues, Issue{
+			ID:          "MISSING-DESIGN-DOCS",
+			Category:    Documentation,
+			Severity:    Medium,
+			Title:       "Missing High-Level Design Documents",
+			Description: "No design documents were found in 'docs/design/'.",
+			Location:    designDir,
+			Suggestion:  "Create high-level design documents for major system components.",
+			Effort:      MediumEffort,
+			Priority:    P2,
+		})
+	}
+
+	return issues, nil
+}
+
+// VerifyExamples checks that example files exist and are valid.
+func (d *DocAuditor) VerifyExamples(ctx context.Context, rootPath string, ws *Workspace) ([]Issue, error) {
+	var issues []Issue
+
+	exampleDir := filepath.Join(rootPath, "examples")
+	if _, err := os.Stat(exampleDir); os.IsNotExist(err) {
+		return nil, nil // No examples to verify
+	}
+
+	err := filepath.Walk(exampleDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+
+		// Cross-platform compilation check
+		platforms := []struct{ OS, Arch string }{
+			{"linux", "amd64"},
+			{"windows", "amd64"},
+			{"darwin", "amd64"},
+		}
+
+		for _, p := range platforms {
+			cmd, err := safeCommand(ctx, "go", "build", "-o", os.DevNull, path)
+			if err != nil {
+				continue
+			}
+			cmd.Env = append(os.Environ(), "GOOS="+p.OS, "GOARCH="+p.Arch)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				issues = append(issues, Issue{
+					ID:          fmt.Sprintf("BROKEN-EXAMPLE-%s", strings.ToUpper(p.OS)),
+					Category:    Documentation,
+					Severity:    High,
+					Title:       fmt.Sprintf("Example file fails to compile for %s", p.OS),
+					Description: fmt.Sprintf("Example file '%s' failed compilation for %s/%s:\n%s", path, p.OS, p.Arch, string(output)),
+					Location:    path,
+					Suggestion:  fmt.Sprintf("Fix the platform-specific compilation errors for %s.", p.OS),
+					Effort:      Small,
+					Priority:    P1,
+				})
+			}
+		}
+
+		return nil
+	})
+
+	return issues, err
 }

@@ -122,6 +122,20 @@ func TestReporter_CountImplementedFlags(t *testing.T) {
 	if count := reporter.countImplementedFlags(); count != 1 {
 		t.Errorf("expected 1, got %d", count)
 	}
+
+	// Test countImplementedFlags with other statuses
+	flags2 := []FlagStatus{
+		{Status: FullyImplemented},
+		{Status: PartiallyImplemented},
+		{Status: NeedsRepair},
+		{Status: NeedsRefactoring},
+		{Status: PlannedNotImplemented},
+		{Status: Deprecated},
+	}
+	reporter.Aggregate(nil, flags2)
+	if count := reporter.countImplementedFlags(); count != 1 {
+		t.Errorf("expected 1 implemented (FullyImplemented only), got %d", count)
+	}
 }
 
 // Reviewed: LONG-FUNCTION - Table-driven test with many sorting cases.
@@ -178,7 +192,7 @@ func TestSortIssues(t *testing.T) {
 	if reporter.issues[0].ID != "HIGH-P" {
 		t.Errorf("expected HIGH-P first, got %s", reporter.issues[0].ID)
 	}
-	
+
 	// Test same priority, different severity
 	if reporter.issues[1].ID != "SAME-P-HIGH-S" {
 		t.Errorf("expected SAME-P-HIGH-S second, got %s", reporter.issues[1].ID)

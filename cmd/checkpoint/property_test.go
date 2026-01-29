@@ -34,7 +34,8 @@ func TestProperty_CheckpointAnalysisConsistency(t *testing.T) {
 		engines := []checkpoint.AnalysisEngine{
 			checkpoint.NewCodeAnalyzer(),
 		}
-		issues, _, err := runAnalysis(ctx, engines)
+		cleanupMgr := checkpoint.NewCleanupManager(false)
+		issues, _, err := runAnalysis(ctx, engines, cleanupMgr)
 		if err != nil {
 			t.Logf("runAnalysis failed: %v", err)
 			return false
@@ -101,7 +102,8 @@ func TestProperty_Dogfooding(t *testing.T) {
 		checkpoint.NewFlagSystem(),
 		checkpoint.NewQualityEngine(),
 	}
-	issues, _, err := runAnalysis(ctx, engines)
+	cleanupMgr := checkpoint.NewCleanupManager(false)
+	issues, _, err := runAnalysis(ctx, engines, cleanupMgr)
 	if err != nil {
 		t.Fatalf("Dogfooding analysis failed: %v", err)
 	}

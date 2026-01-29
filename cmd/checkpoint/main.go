@@ -26,13 +26,17 @@ func run() error {
 
 	engines := registerEngines()
 
-	issues, flags, err := runAnalysis(ctx, engines)
+	issues, flags, err := runAnalysis(ctx, engines, cleanup)
 	if err != nil {
 		handleRunFailure(cleanup, "analysis", err)
 		return fmt.Errorf("running analysis: %w", err)
 	}
 
-	reports := generateReports(ctx, issues, flags)
+	reports, err := generateReports(ctx, issues, flags, cleanup)
+	if err != nil {
+		handleRunFailure(cleanup, "report generation", err)
+		return fmt.Errorf("generating reports: %w", err)
+	}
 
 	if err := saveReports(reports); err != nil {
 		handleRunFailure(cleanup, "report generation", err)
@@ -42,17 +46,19 @@ func run() error {
 	fmt.Println("Analysis complete. Reports generated in major_checkpoint/ directory.")
 
 	// Perform cleanup at the end
-	fmt.Println("Performing post-analysis cleanup...")
-	if err := cleanup.CleanupOnExit(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Cleanup failed: %v\n", err)
+	if os.Getenv("HASHI_SKIP_CLEANUP") == "" {
+		fmt.Println("Performing post-analysis cleanup...")
+		if err := cleanup.CleanupOnExit(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Cleanup failed: %v\n", err)
+		}
 	}
 	return nil
 }
 
 func checkInitialResources(cleanup *checkpoint.CleanupManager) {
-	// Check tmpfs usage before starting
-	if needsCleanup, usage := cleanup.CheckTmpfsUsage(75.0); needsCleanup {
-		fmt.Printf("Warning: Tmpfs usage is %.1f%%. Consider running cleanup before analysis.\n", usage)
+	// Check storage usage before starting
+	if needsCleanup, usage := cleanup.CheckStorageUsage(75.0); needsCleanup {
+		fmt.Printf("Warning: Storage usage is %.1f%%. Consider running cleanup before analysis.\n", usage)
 	}
 }
 
@@ -75,7 +81,7 @@ func handleRunFailure(cleanup *checkpoint.CleanupManager, phase string, err erro
 	}
 }
 
-func runAnalysis(ctx context.Context, engines []checkpoint.AnalysisEngine) ([]checkpoint.Issue, []checkpoint.FlagStatus, error) {
+func runAnalysis(ctx context.Context, engines []checkpoint.AnalysisEngine, cleanup *checkpoint.CleanupManager) ([]checkpoint.Issue, []checkpoint.FlagStatus, error) {
 	runner := checkpoint.NewRunner(engines)
 
 	fmt.Println("Running comprehensive project analysis...")
@@ -86,13 +92,30 @@ func runAnalysis(ctx context.Context, engines []checkpoint.AnalysisEngine) ([]ch
 	issues := runner.GetIssues()
 
 	// Special handling for flags as they return FlagStatus
+	ws, err := checkpoint.NewWorkspace(true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating workspace: %w", err)
+	}
+	cleanup.RegisterWorkspace(ws)
+	defer ws.Cleanup()
+
 	flagSystem := checkpoint.NewFlagSystem()
-	flags, err := flagSystem.CatalogFlags(ctx, ".")
-	if err == nil {
-		flags, _ = flagSystem.ClassifyImplementation(ctx, ".", flags)
-		flags, _ = flagSystem.PerformCrossReferenceAnalysis(ctx, ".", flags)
-		flags, _ = flagSystem.DetectConflicts(ctx, flags)
-		flags, _ = flagSystem.ValidateFunctionality(ctx, flags)
+	flags, err := flagSystem.CatalogFlags(ctx, ".", ws)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cataloging flags: %w", err)
+	}
+
+	if flags, err = flagSystem.ClassifyImplementation(ctx, ".", ws, flags); err != nil {
+		return nil, nil, fmt.Errorf("classifying flags: %w", err)
+	}
+	if flags, err = flagSystem.PerformCrossReferenceAnalysis(ctx, ".", ws, flags); err != nil {
+		return nil, nil, fmt.Errorf("cross-referencing flags: %w", err)
+	}
+	if flags, err = flagSystem.DetectConflicts(ctx, ws, flags); err != nil {
+		return nil, nil, fmt.Errorf("detecting flag conflicts: %w", err)
+	}
+	if flags, err = flagSystem.ValidateFunctionality(ctx, ws, flags); err != nil {
+		return nil, nil, fmt.Errorf("validating flag functionality: %w", err)
 	}
 
 	return issues, flags, nil
@@ -107,19 +130,41 @@ type analysisReports struct {
 	csvReport  string
 }
 
-func generateReports(ctx context.Context, issues []checkpoint.Issue, flags []checkpoint.FlagStatus) analysisReports {
+func generateReports(ctx context.Context, issues []checkpoint.Issue, flags []checkpoint.FlagStatus, cleanup *checkpoint.CleanupManager) (analysisReports, error) {
 	reporter := checkpoint.NewReporter()
 	reporter.Aggregate(issues, flags)
 	reporter.SortIssues()
 
-	plan, _ := reporter.GenerateRemediationPlan()
-	dashboard, _ := reporter.GenerateStatusDashboard()
-	guide, _ := reporter.GenerateOnboardingGuide()
-	jsonReport, _ := reporter.GenerateJSONReport()
-	csvReport, _ := reporter.GenerateCSVReport()
+	var err error
+	var plan, dashboard, guide, jsonReport, csvReport, flagReport string
+
+	if plan, err = reporter.GenerateRemediationPlan(); err != nil {
+		return analysisReports{}, fmt.Errorf("generating remediation plan: %w", err)
+	}
+	if dashboard, err = reporter.GenerateStatusDashboard(); err != nil {
+		return analysisReports{}, fmt.Errorf("generating status dashboard: %w", err)
+	}
+	if guide, err = reporter.GenerateOnboardingGuide(); err != nil {
+		return analysisReports{}, fmt.Errorf("generating onboarding guide: %w", err)
+	}
+	if jsonReport, err = reporter.GenerateJSONReport(); err != nil {
+		return analysisReports{}, fmt.Errorf("generating JSON report: %w", err)
+	}
+	if csvReport, err = reporter.GenerateCSVReport(); err != nil {
+		return analysisReports{}, fmt.Errorf("generating CSV report: %w", err)
+	}
+
+	ws, err := checkpoint.NewWorkspace(true)
+	if err != nil {
+		return analysisReports{}, fmt.Errorf("creating workspace for flag report: %w", err)
+	}
+	cleanup.RegisterWorkspace(ws)
+	defer ws.Cleanup()
 
 	flagSystem := checkpoint.NewFlagSystem()
-	flagReport, _ := flagSystem.GenerateStatusReport(ctx, flags)
+	if flagReport, err = flagSystem.GenerateStatusReport(ctx, ws, flags); err != nil {
+		return analysisReports{}, fmt.Errorf("generating flag status report: %w", err)
+	}
 
 	return analysisReports{
 		plan:       plan,
@@ -128,7 +173,7 @@ func generateReports(ctx context.Context, issues []checkpoint.Issue, flags []che
 		flagReport: flagReport,
 		jsonReport: jsonReport,
 		csvReport:  csvReport,
-	}
+	}, nil
 }
 
 func saveReports(r analysisReports) error {
