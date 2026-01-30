@@ -18,20 +18,20 @@ func HelpText() string {
 	return sb.String()
 }
 
-const helpHeader = `hashi - A command-line hash comparison tool
+const helpHeader = `chexum - A command-line hash comparison tool
 
 EXAMPLES
-  hashi                          Hash all files in current directory
-  hashi file1.txt file2.txt      Compare hashes of two files
-  hashi -b file1.txt file2.txt   Boolean check: do files match? (outputs true/false)
-  hashi -r /path/to/dir          Recursively hash directory
-  hashi --json *.txt             Output results as JSON
-  hashi -                        Read file list from stdin
+  chexum                          Hash all files in current directory
+  chexum file1.txt file2.txt      Compare hashes of two files
+  chexum -b file1.txt file2.txt   Boolean check: do files match? (outputs true/false)
+  chexum -r /path/to/dir          Recursively hash directory
+  chexum --json *.txt             Output results as JSON
+  chexum -                        Read file list from stdin
 `
 
 const helpUsage = `
 USAGE
-  hashi [flags] [files...]
+  chexum [flags] [files...]
 
 FLAGS
   -h, --help                Show this help
@@ -40,7 +40,7 @@ FLAGS
   -q, --quiet               Suppress stdout, only return exit code
   -b, --bool                Boolean output mode (true/false)
   -r, --recursive           Process directories recursively
-      --hidden              Include hidden files
+  -H, --hidden              Include hidden files
       --dry-run             Preview files without hashing
   -a, --algorithm string    Hash algorithm: sha256, md5, sha1, sha512, blake2b (default: sha256)
       --test                Run system diagnostics for troubleshooting
@@ -53,10 +53,10 @@ BOOLEAN MODE (-b / --bool)
   It overrides other output formats and implies quiet behavior.
 
   Default behavior (no match flags):
-    hashi -b file1 file2 file3     # true if ALL files match
+    chexum -b file1 file2 file3     # true if ALL files match
 
   With --match-required:
-    hashi -b --match-required *.txt    # true if ANY matches found
+    chexum -b --match-required *.txt    # true if ANY matches found
 `
 
 const helpOutputFormats = `
@@ -95,19 +95,19 @@ CONFIGURATION
   -c, --config string       Path to config file
 
   Config File Auto-Discovery (searched in order):
-    ./.hashi.toml                        Project-specific (highest priority)
-    $XDG_CONFIG_HOME/hashi/config.toml   XDG standard location
-    ~/.config/hashi/config.toml          XDG fallback location
-    ~/.hashi/config.toml                 Traditional dotfile location
+    ./.chexum.toml                        Project-specific (highest priority)
+    $XDG_CONFIG_HOME/chexum/config.toml   XDG standard location
+    ~/.config/chexum/config.toml          XDG fallback location
+    ~/.chexum/config.toml                 Traditional dotfile location
 `
 
 const helpEnvironment = `
 ENVIRONMENT VARIABLES
-  HASHI_* Variables (override config file settings):
-    HASHI_CONFIG            Default config file path
-    HASHI_ALGORITHM         Hash algorithm (sha256, md5, sha1, sha512, blake2b)
-    HASHI_OUTPUT_FORMAT     Output format (default, verbose, json, plain)
-    HASHI_RECURSIVE         Process directories recursively (true/false)
+  CHEXUM_* Variables (override config file settings):
+    CHEXUM_CONFIG            Default config file path
+    CHEXUM_ALGORITHM         Hash algorithm (sha256, md5, sha1, sha512, blake2b)
+    CHEXUM_OUTPUT_FORMAT     Output format (default, verbose, json, plain)
+    CHEXUM_RECURSIVE         Process directories recursively (true/false)
 `
 
 const helpFooter = `
@@ -120,10 +120,10 @@ EXIT CODES
   5   Permission denied
   130 Interrupted (Ctrl-C)
 
-For more information, visit: https://github.com/example/hashi
+For more information, visit: https://github.com/example/chexum
 `
 
 // VersionText returns the current version string.
 func VersionText() string {
-	return "hashi version 0.0.19"
+	return "chexum v0.5.0"
 }

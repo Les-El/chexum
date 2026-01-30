@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Les-El/hashi/internal/testutil"
+	"github.com/Les-El/chexum/internal/testutil"
 )
 
 // Property 12: Comprehensive Integration Testing
@@ -21,7 +21,7 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 
 	// 1. Setup project structure
 	testutil.CreateFile(t, tmpDir, "internal/config/config.go", "package config\n")
-	testutil.CreateFile(t, tmpDir, "docs/user/README.md", "# User Docs\n")
+	testutil.CreateFile(t, tmpDir, "README.md", "# User Docs\n")
 	testutil.CreateFile(t, tmpDir, "major_checkpoint/design.md", "# Design\n")
 	testutil.GenerateMockGoFile(t, tmpDir, "main.go", true, true)
 

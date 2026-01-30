@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Les-El/hashi/internal/checkpoint"
-	"github.com/Les-El/hashi/internal/testutil"
+	"github.com/Les-El/chexum/internal/checkpoint"
+	"github.com/Les-El/chexum/internal/testutil"
 )
 
 var binaryName = "checkpoint"
@@ -42,8 +42,8 @@ func TestMain(m *testing.M) {
 	os.Setenv("PATH", tmpDir+string(os.PathListSeparator)+oldPath)
 
 	// Prevent tests from triggering global cleanup
-	os.Setenv("HASHI_SKIP_CLEANUP", "true")
-	defer os.Unsetenv("HASHI_SKIP_CLEANUP")
+	os.Setenv("CHEXUM_SKIP_CLEANUP", "true")
+	defer os.Unsetenv("CHEXUM_SKIP_CLEANUP")
 
 	code := m.Run()
 
@@ -67,7 +67,7 @@ func TestCLI_Checkpoint(t *testing.T) {
 
 	// Minimal environment
 	testutil.CreateFile(t, tmpDir, "internal/config/config.go", "package config\n")
-	testutil.CreateFile(t, tmpDir, "docs/user/README.md", "# User Docs\n")
+	testutil.CreateFile(t, tmpDir, "README.md", "# User Docs\n")
 	testutil.CreateFile(t, tmpDir, "major_checkpoint/design.md", "# Design\n")
 	testutil.GenerateMockGoFile(t, tmpDir, "main.go", false, false)
 
@@ -96,7 +96,7 @@ func TestMainDirect(t *testing.T) {
 
 	// Minimal environment
 	testutil.CreateFile(t, tmpDir, "internal/config/config.go", "package config\n")
-	testutil.CreateFile(t, tmpDir, "docs/user/README.md", "# User Docs\n")
+	testutil.CreateFile(t, tmpDir, "README.md", "# User Docs\n")
 	testutil.CreateFile(t, tmpDir, "major_checkpoint/design.md", "# Design\n")
 	testutil.GenerateMockGoFile(t, tmpDir, "main.go", false, false)
 
@@ -116,7 +116,7 @@ func cleanupTemporaryFiles() {
 	// Only remove temporary files created by tests, not active Go build artifacts
 	tmpDir := os.TempDir()
 	tmpPatterns := []string{
-		filepath.Join(tmpDir, "hashi-*"),
+		filepath.Join(tmpDir, "chexum-*"),
 		filepath.Join(tmpDir, "checkpoint-*"),
 		filepath.Join(tmpDir, "test-*"),
 	}
@@ -143,7 +143,7 @@ func TestRunAnalysis(t *testing.T) {
 
 	// Create necessary directory structure and files for FlagSystem and other engines
 	testutil.CreateFile(t, tmpDir, "internal/config/config.go", "package config\n")
-	testutil.CreateFile(t, tmpDir, "docs/user/README.md", "# User Docs\n")
+	testutil.CreateFile(t, tmpDir, "README.md", "# User Docs\n")
 	testutil.CreateFile(t, tmpDir, "major_checkpoint/design.md", "# Design\n")
 
 	// Create a minimal go project structure so analyzers have something to look at
@@ -348,7 +348,7 @@ func TestRun(t *testing.T) {
 
 	// Create necessary directory structure and files for FlagSystem and other engines
 	testutil.CreateFile(t, tmpDir, "internal/config/config.go", "package config\n")
-	testutil.CreateFile(t, tmpDir, "docs/user/README.md", "# User Docs\n")
+	testutil.CreateFile(t, tmpDir, "README.md", "# User Docs\n")
 	testutil.CreateFile(t, tmpDir, "major_checkpoint/design.md", "# Design\n")
 	testutil.GenerateMockGoFile(t, tmpDir, "main.go", false, false)
 

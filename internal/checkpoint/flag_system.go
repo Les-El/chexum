@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Les-El/hashi/internal/config"
+	"github.com/Les-El/chexum/internal/config"
 )
 
 // FlagSystem implements FlagDocumentationSystem.
@@ -66,7 +66,7 @@ func (f *FlagSystem) Analyze(ctx context.Context, path string, ws *Workspace) ([
 				Category:    Usability,
 				Severity:    High,
 				Title:       fmt.Sprintf("Flag '--%s' missing from CLI help output", flag.LongForm),
-				Description: fmt.Sprintf("The flag '--%s' is defined in code but does not appear when running 'hashi --help'.", flag.LongForm),
+				Description: fmt.Sprintf("The flag '--%s' is defined in code but does not appear when running 'chexum --help'.", flag.LongForm),
 				Location:    filepath.Join(path, configPkg, "cli.go"),
 				Suggestion:  "Ensure the flag is correctly added to the flagset used by the CLI.",
 				Effort:      Small,
@@ -202,8 +202,8 @@ func (f *FlagSystem) ClassifyImplementation(ctx context.Context, rootPath string
 	}
 	code := sb.String()
 
-	// Also check cmd/hashi/main.go for usage of the Config struct
-	mainPath := filepath.Join(rootPath, "cmd/hashi/main.go")
+	// Also check cmd/chexum/main.go for usage of the Config struct
+	mainPath := filepath.Join(rootPath, "cmd/chexum/main.go")
 	mainContent, _ := os.ReadFile(mainPath)
 	mainCode := string(mainContent)
 
@@ -255,7 +255,7 @@ func (f *FlagSystem) detectGhostFlags(docContent, planContent string, flags []Fl
 func (f *FlagSystem) PerformCrossReferenceAnalysis(ctx context.Context, rootPath string, ws *Workspace, flags []FlagStatus) ([]FlagStatus, error) {
 	// 1. Check user documentation
 	userDocs := []string{
-		filepath.Join(rootPath, "docs/user/README.md"),
+		filepath.Join(rootPath, "README.md"),
 		filepath.Join(rootPath, "docs/user/dry-run.md"),
 		filepath.Join(rootPath, "docs/user/examples.md"),
 		filepath.Join(rootPath, "docs/user/filtering.md"),
@@ -392,7 +392,7 @@ func (f *FlagSystem) DetectConflicts(ctx context.Context, ws *Workspace, flags [
 	return flags, nil
 }
 
-// ValidateFunctionality verifies that flags appear in hashi --help output.
+// ValidateFunctionality verifies that flags appear in chexum --help output.
 func (f *FlagSystem) ValidateFunctionality(ctx context.Context, ws *Workspace, flags []FlagStatus) ([]FlagStatus, error) {
 	// Instead of running the CLI, we call the internal HelpText function directly.
 	// This is much faster and avoids dependency on 'go run'.
